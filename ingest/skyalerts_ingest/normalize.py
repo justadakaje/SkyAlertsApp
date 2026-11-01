@@ -1,4 +1,4 @@
-"""Map raw ALeRCE list rows to database rows.
+"""Map raw ALeRCE rows to database rows.
 
 Pure functions; all upstream data is treated as untrusted. Rows that fail
 validation are rejected (returned as None) rather than half-inserted.
@@ -12,6 +12,31 @@ from dataclasses import dataclass
 from typing import Any
 
 MAX_TEXT = 128
+
+ZTF_BANDS: dict[int, str] = {1: "g", 2: "r", 3: "i"}
+LSST_BANDS: dict[str, str] = {"1": "g", "2": "r", "3": "i", "4": "z", "5": "y", "6": "u"}
+
+ZTF_RAW_KEYS: tuple[str, ...] = (
+    "candid",
+    "fid",
+    "isdiffpos",
+    "rb",
+    "drb",
+    "dubious",
+    "diffmaglim",
+    "magpsf_corr",
+    "sigmapsf_corr",
+    "corrected",
+)
+LSST_RAW_KEYS: tuple[str, ...] = (
+    "band",
+    "psfFlux_flag",
+    "isNegative",
+    "snr",
+    "scienceFlux",
+    "scienceFluxErr",
+    "has_stamp",
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +68,20 @@ class ClassificationRow:
     ranking: int | None
 
 
+@dataclass(frozen=True)
+class DetectionRow:
+    survey: str
+    oid: str
+    measurement_id: str
+    mjd: float
+    band: str | None
+    mag: float | None
+    mag_err: float | None
+    flux_njy: float | None
+    flux_err_njy: float | None
+    raw: dict[str, Any]
+
+
 def _float(v: Any, lo: float | None = None, hi: float | None = None) -> float | None:
     if v is None or isinstance(v, bool):
         return None
@@ -72,7 +111,7 @@ def _int(v: Any, hi: int = INT32_MAX) -> int | None:
 
 
 def _text(v: Any) -> str | None:
-    if v is None:
+    if v is None or isinstance(v, bool):
         return None
     s = "".join(ch for ch in str(v) if ch.isprintable() and not "\ud800" <= ch <= "\udfff")
     s = s.strip()
@@ -88,6 +127,33 @@ def _ra(v: Any) -> float | None:
     if f is None:
         return None
     return 0.0 if f == 360.0 else f
+
+
+def _clean_raw_val(v: Any) -> Any:
+    if v is None or isinstance(v, (bool, int)):
+        return v
+    if isinstance(v, float):
+        return v if math.isfinite(v) else None
+    if isinstance(v, str):
+        return _text(v)
+    return None
+
+
+def _slim_raw(row: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    return {k: _clean_raw_val(row[k]) for k in keys if k in row}
+
+
+def _lsst_band(row: dict[str, Any]) -> str | None:
+    raw_band = row.get("band")
+    if raw_band is None or isinstance(raw_band, bool):
+        return None
+    key = str(raw_band).strip()
+    bmap = row.get("band_map")
+    if isinstance(bmap, dict) and key in bmap:
+        mapped = _text(bmap[key])
+        if mapped:
+            return mapped
+    return LSST_BANDS.get(key) or (key if key in ("u", "g", "r", "i", "z", "y") else None)
 
 
 def normalize_object(
@@ -147,3 +213,86 @@ def normalize_object(
         else None
     )
     return obj, cls
+
+
+def normalize_detection(survey: str, oid: str | int, row: dict[str, Any]) -> DetectionRow | None:
+    """Return a normalized DetectionRow, or None if id or mjd is unusable."""
+    clean_oid = _text(oid)
+    if not clean_oid or len(clean_oid) > 64:
+        return None
+    mjd = _float(row.get("mjd"), 0.0)
+    if mjd is None:
+        return None
+
+    if survey == "ztf":
+        mid = _text(row.get("candid"))
+        if not mid:
+            return None
+        fid = _int(row.get("fid"))
+        band = ZTF_BANDS.get(fid) if fid is not None else None
+        raw_mag = _float(row.get("magpsf"))
+        mag = raw_mag if raw_mag is not None and 0.0 < raw_mag < 40.0 else None
+        mag_err = _float(row.get("sigmapsf"), 0.0) if mag is not None else None
+        flux_njy = None
+        flux_err_njy = None
+        raw = _slim_raw(row, ZTF_RAW_KEYS)
+    elif survey == "lsst":
+        mid = _text(row.get("measurement_id"))
+        if not mid:
+            return None
+        band = _lsst_band(row)
+        flux_njy = _float(row.get("psfFlux"))
+        flux_err_njy = _float(row.get("psfFluxErr"))
+        if flux_njy is not None and flux_njy > 0.0:
+            mag = -2.5 * math.log10(flux_njy) + 31.4
+            mag_err = (
+                1.0857 * flux_err_njy / flux_njy
+                if flux_err_njy is not None and flux_err_njy >= 0.0
+                else None
+            )
+        else:
+            mag = None
+            mag_err = None
+        raw = _slim_raw(row, LSST_RAW_KEYS)
+    else:
+        raise ValueError(f"unknown survey {survey!r}")
+
+    return DetectionRow(
+        survey=survey,
+        oid=clean_oid,
+        measurement_id=mid,
+        mjd=mjd,
+        band=band,
+        mag=mag,
+        mag_err=mag_err,
+        flux_njy=flux_njy,
+        flux_err_njy=flux_err_njy,
+        raw=raw,
+    )
+
+
+def normalize_probability(
+    survey: str, oid: str | int, row: dict[str, Any]
+) -> ClassificationRow | None:
+    """Return a normalized ClassificationRow from a per-object probability row."""
+    if survey not in ("ztf", "lsst"):
+        raise ValueError(f"unknown survey {survey!r}")
+    clean_oid = _text(oid)
+    if not clean_oid or len(clean_oid) > 64:
+        return None
+    classifier = _text(row.get("classifier_name"))
+    class_name = _text(row.get("class_name"))
+    prob = _float(row.get("probability"), 0.0, 1.0)
+    if not classifier or not class_name or prob is None:
+        return None
+    version = _text(row.get("classifier_version")) or ""
+    ranking = _int(row.get("ranking"), hi=INT16_MAX)
+    return ClassificationRow(
+        survey=survey,
+        oid=clean_oid,
+        classifier_name=classifier,
+        classifier_version=version,
+        class_name=class_name,
+        probability=prob,
+        ranking=ranking if ranking and ranking >= 1 else None,
+    )

@@ -140,6 +140,35 @@ def test_lsst_probabilities_uses_survey_id(make_client):
     assert len(probs) == 3
 
 
+def test_ztf_detections_encodes_oid_and_accepts_list(make_client):
+    client, seen = make_client(ok(load_fixture("ztf_detections_live.json")))
+    dets = client.detections("ztf", "ZTF18acwycia/../../admin")
+    assert seen[0].url.host == "ztf.test"
+    assert seen[0].url.raw_path.startswith(
+        b"/ztf/v1/objects/ZTF18acwycia%2F..%2F..%2Fadmin/detections"
+    )
+    assert len(dets) == 32 and all("candid" in d for d in dets)
+
+
+def test_lsst_detections_uses_survey_id_and_accepts_items_wrapper(make_client):
+    live = load_fixture("lsst_detections_live.json")
+    client, seen = make_client(ok({"items": live}))
+    dets = client.detections("lsst", 313708285401235521)
+    q = dict(seen[0].url.params)
+    assert seen[0].url.host == "lsst.test"
+    assert seen[0].url.path == "/lightcurve_api/detections"
+    assert q == {"survey_id": "lsst", "oid": "313708285401235521"}
+    assert len(dets) == 20
+
+
+def test_detections_rejects_bad_survey_and_schema(make_client):
+    client, _ = make_client(ok({"wrong": 1}))
+    with pytest.raises(ValueError):
+        client.detections("ptf", "1")  # type: ignore[arg-type]
+    with pytest.raises(AlerceSchemaError):
+        client.detections("ztf", "ZTF18acwycia")
+
+
 def test_does_not_follow_redirects(make_client):
     client, _ = make_client(
         lambda req: httpx.Response(302, headers={"Location": "https://evil.test/"})

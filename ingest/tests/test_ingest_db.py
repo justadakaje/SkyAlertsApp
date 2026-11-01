@@ -46,15 +46,31 @@ def ingest_dsn():
         c.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
-def alerce(lsst_status=200, ztf_status=200):
+def alerce(lsst_status=200, ztf_status=200, enrich_status=200):
     def handler(req: httpx.Request) -> httpx.Response:
         page = int(req.url.params.get("page", "1"))
         if req.url.host == "lsst.test":
+            if req.url.path == "/lightcurve_api/detections":
+                if enrich_status != 200:
+                    return httpx.Response(enrich_status)
+                return httpx.Response(200, json=load_fixture("lsst_detections_live.json"))
+            if req.url.path == "/probability_api/probability":
+                if enrich_status != 200:
+                    return httpx.Response(enrich_status)
+                return httpx.Response(200, json=load_fixture("lsst_probabilities_live.json"))
             if lsst_status != 200:
                 return httpx.Response(lsst_status)
             items = load_fixture("lsst_objects.json")["items"] if page == 1 else []
             return httpx.Response(200, json={"items": items})
         if req.url.host == "ztf.test":
+            if req.url.path.endswith("/detections"):
+                if enrich_status != 200:
+                    return httpx.Response(enrich_status)
+                return httpx.Response(200, json=load_fixture("ztf_detections_live.json"))
+            if req.url.path.endswith("/probabilities"):
+                if enrich_status != 200:
+                    return httpx.Response(enrich_status)
+                return httpx.Response(200, json=load_fixture("ztf_probabilities_live.json"))
             if ztf_status != 200:
                 return httpx.Response(ztf_status)
             if page > 1:
@@ -84,13 +100,19 @@ def test_ingest_end_to_end_and_idempotent(ingest_dsn, make_client):
         n_lsst = len(load_fixture("lsst_objects.json")["items"])
         n_ztf = len(load_fixture("ztf_objects.json")["items"])
         assert _count(ingest_dsn, "SELECT count(*) FROM objects") == n_lsst + n_ztf
+        # 2 non-bogus/asteroid LSST objects + 6 ZTF objects = 8 enriched
+        assert res.objects_enriched == 8
+        assert res.detections_upserted == 2 * 20 + 6 * 32
+        assert _count(ingest_dsn, "SELECT count(*) FROM detections") == res.detections_upserted
         first_cls = _count(ingest_dsn, "SELECT count(*) FROM classifications")
         assert first_cls > 0
 
         res2 = run(store, client, trigger="cli", cfg=Config(page_size=100), now=NOW)
         assert res2.status == "success"
+        assert res2.objects_enriched == 0 and res2.detections_upserted == 0
         assert _count(ingest_dsn, "SELECT count(*) FROM objects") == n_lsst + n_ztf
         assert _count(ingest_dsn, "SELECT count(*) FROM classifications") == first_cls
+        assert _count(ingest_dsn, "SELECT count(*) FROM detections") == res.detections_upserted
         runs = _count(ingest_dsn, "SELECT count(*) FROM ingest_runs WHERE status='success'")
         assert runs == 2
         # lc_classifier ran after stamp, so it owns top_classifier for ZTF rows that have a class
@@ -166,6 +188,8 @@ def test_page_cap_before_floor_is_partial(ingest_dsn, make_client):
     full = load_fixture("lsst_objects.json")["items"]
 
     def handler(req):
+        if req.url.path != "/object_api/list_objects":
+            return httpx.Response(200, json=[])
         page = int(req.url.params["page"])
         items = [dict(it, oid=int(f"{page}{i:03d}"), lastmjd=61344.9) for i, it in enumerate(full)]
         return httpx.Response(200, json={"items": items})
@@ -237,7 +261,7 @@ def test_stamp_never_overwrites_lc_top_class(ingest_dsn):
 
 
 def test_time_budget_marks_partial(ingest_dsn, make_client):
-    client, _ = make_client(alerce())
+    client, seen = make_client(alerce())
     ticks = iter([0.0] + [1000.0] * 50)
     store = Store.connect(ingest_dsn)
     try:
@@ -246,4 +270,244 @@ def test_time_budget_marks_partial(ingest_dsn, make_client):
         )
     finally:
         store.close()
-    assert res.status == "partial" and res.objects_seen == 0
+    assert res.status == "partial" and res.objects_seen == 0 and res.objects_enriched == 0
+    assert seen == []
+
+
+def test_enrichment_candidates_ordering_and_filtering(ingest_dsn):
+    from skyalerts_ingest.normalize import ObjectRow
+
+    def mk(oid, cls, prob, mjd):
+        return ObjectRow(
+            survey="ztf",
+            oid=oid,
+            meanra=10.0,
+            meandec=10.0,
+            firstmjd=mjd - 1.0,
+            lastmjd=mjd,
+            ndet=5,
+            n_forced=None,
+            stellar=False,
+            top_class=cls,
+            top_classifier="lc_classifier" if cls else None,
+            top_classifier_version="1.0" if cls else None,
+            top_probability=prob,
+            raw={"oid": oid},
+        )
+
+    store = Store.connect(ingest_dsn)
+    try:
+        r1 = store.start_run("cli", ["ztf"])
+        store.upsert_batch(r1, [mk("other_run", "SNIa", 0.99, 61344.9)], [])
+        store.finish_run(
+            r1,
+            status="success",
+            objects_seen=1,
+            objects_upserted=1,
+            classifications_upserted=0,
+            requests=1,
+            errors=[],
+            duration_ms=10,
+        )
+
+        r2 = store.start_run("cli", ["ztf"])
+        objs = [
+            mk("bogus1", "bogus", 0.99, 61344.9),
+            mk("ast1", "asteroid", 0.99, 61344.9),
+            mk("agn_hi", "AGN", 0.95, 61344.9),  # tier 3
+            mk("blazar_lo", "Blazar", 0.60, 61344.8),  # tier 3
+            mk("vs_hi", "RRL", 0.90, 61344.5),  # tier 2
+            mk("vs_null", None, None, 61344.9),  # tier 2 (null prob last)
+            mk("sn_lo_older", "SNII", 0.70, 61344.1),  # tier 1
+            mk("sn_lo_newer", "TDE", 0.70, 61344.8),  # tier 1 (tie-break by lastmjd DESC)
+            mk("sn_hi", "SNIa", 0.92, 61344.2),  # tier 1
+            mk("already_fresh", "SN", 0.99, 61344.0),  # will be marked enriched at 61344.0
+            mk("re_brightened", "KN", 0.85, 61344.5),  # enriched at 61343.0, then new det
+        ]
+        store.upsert_batch(r2, objs, [])
+        store.enrich_object("ztf", "already_fresh", [], [])
+        with psycopg.connect(ingest_dsn, autocommit=True) as c:
+            c.execute(
+                "UPDATE objects SET enriched_at = now(), enriched_lastmjd = 61343.0"
+                " WHERE oid = 're_brightened'"
+            )
+
+        cands = store.enrichment_candidates(r2, limit=20)
+        assert [oid for _, oid in cands] == [
+            "sn_hi",
+            "re_brightened",
+            "sn_lo_newer",
+            "sn_lo_older",
+            "vs_hi",
+            "vs_null",
+            "agn_hi",
+            "blazar_lo",
+        ]
+        assert len(store.enrichment_candidates(r2, limit=3)) == 3
+        assert store.enrichment_candidates(r2, limit=0) == []
+    finally:
+        store.close()
+
+
+def test_enrich_object_idempotent_and_updates_when_lastmjd_advances(ingest_dsn):
+    from skyalerts_ingest.normalize import (
+        normalize_detection,
+        normalize_object,
+        normalize_probability,
+    )
+
+    store = Store.connect(ingest_dsn)
+    try:
+        r1 = store.start_run("cli", ["lsst"])
+        raw_obj = dict(load_fixture("lsst_objects.json")["items"][0], oid=313708285401235521)
+        obj, cls = normalize_object("lsst", raw_obj)
+        store.upsert_batch(r1, [obj], [cls])
+
+        dets = [
+            normalize_detection("lsst", obj.oid, r)
+            for r in load_fixture("lsst_detections_live.json")[:5]
+        ]
+        probs = [
+            normalize_probability("lsst", obj.oid, r)
+            for r in load_fixture("lsst_probabilities_live.json")[:4]
+        ]
+        n_d, n_c = store.enrich_object("lsst", obj.oid, dets, probs)
+        assert (n_d, n_c) == (5, 4)
+        assert store.enrichment_candidates(r1, 10) == []
+
+        # Re-enriching with overlapping data updates in place without duplicating rows
+        dets_updated = [
+            dets[0],
+            normalize_detection("lsst", obj.oid, load_fixture("lsst_detections_live.json")[5]),
+        ]
+        store.enrich_object("lsst", obj.oid, dets_updated, probs)
+        assert _count(ingest_dsn, "SELECT count(*) FROM detections") == 6
+
+        # Advancing lastmjd makes the object eligible again
+        newer_obj, _ = normalize_object("lsst", raw_obj | {"lastmjd": obj.lastmjd + 1.0})
+        store.upsert_batch(r1, [newer_obj], [])
+        assert store.enrichment_candidates(r1, 10) == [("lsst", obj.oid)]
+    finally:
+        store.close()
+
+
+def test_enrichment_caps_detections_and_probabilities(ingest_dsn, make_client):
+    base_det = load_fixture("ztf_detections_live.json")[0]
+    many_dets = [dict(base_det, candid=f"c{i}", mjd=60000.0 + i) for i in range(250)]
+    # Group 1: has explicit rankings 1..5 -> keep 3. Group 2: missing rankings -> top 3 by prob.
+    probs = [
+        {
+            "classifier_name": "clf_a",
+            "classifier_version": "1",
+            "class_name": f"c{i}",
+            "probability": 0.1 * i,
+            "ranking": i,
+        }
+        for i in range(1, 6)
+    ] + [
+        {
+            "classifier_name": "clf_b",
+            "classifier_version": "1",
+            "class_name": f"u{i}",
+            "probability": p,
+        }
+        for i, p in enumerate([0.05, 0.50, 0.20, 0.30, 0.01])
+    ]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/detections"):
+            return httpx.Response(200, json=many_dets)
+        if req.url.path.endswith("/probabilities"):
+            return httpx.Response(200, json=probs)
+        if (
+            req.url.params.get("page") == "1"
+            and req.url.params.get("classifier") == "lc_classifier"
+        ):
+            it = dict(load_fixture("ztf_objects.json")["items"][0], oid="ZTF26cap")
+            return httpx.Response(200, json={"items": [it]})
+        return httpx.Response(200, json={"items": []})
+
+    client, _ = make_client(handler)
+    store = Store.connect(ingest_dsn)
+    try:
+        res = run(store, client, surveys=("ztf",), cfg=Config(), now=NOW)
+    finally:
+        store.close()
+    assert res.status == "success"
+    assert res.objects_enriched == 1 and res.detections_upserted == 200
+    with psycopg.connect(ingest_dsn) as c:
+        min_mjd = c.execute("SELECT min(mjd) FROM detections WHERE oid='ZTF26cap'").fetchone()[0]
+        b_classes = [
+            r[0]
+            for r in c.execute(
+                "SELECT class_name FROM classifications"
+                " WHERE oid='ZTF26cap' AND classifier_name='clf_b' ORDER BY probability DESC"
+            )
+        ]
+        a_count = c.execute(
+            "SELECT count(*) FROM classifications WHERE oid='ZTF26cap' AND classifier_name='clf_a'"
+        ).fetchone()[0]
+    assert min_mjd == 60050.0  # 200 newest out of 60000..60249
+    assert a_count == 3
+    assert b_classes == ["u1", "u3", "u2"]
+
+
+def test_enrichment_failure_leaves_status_success(ingest_dsn, make_client):
+    client, _ = make_client(alerce(enrich_status=404), max_attempts=1)
+    store = Store.connect(ingest_dsn)
+    try:
+        res = run(store, client, surveys=("lsst",), cfg=Config(), now=NOW)
+    finally:
+        store.close()
+    assert res.status == "success"
+    assert res.objects_enriched == 0 and res.detections_upserted == 0
+    assert len(res.errors) == 2 and all(e["source"] == "enrich" for e in res.errors)
+    with psycopg.connect(ingest_dsn) as c:
+        row = c.execute(
+            "SELECT status, objects_enriched, detections_upserted, error_count"
+            " FROM ingest_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row == ("success", 0, 0, 2)
+
+
+def test_unexpected_enrichment_error_is_isolated(ingest_dsn, make_client, monkeypatch):
+    client, _ = make_client(alerce())
+    real = client.detections
+    calls = []
+
+    def flaky(survey, oid):
+        calls.append(oid)
+        if len(calls) == 1:
+            raise RuntimeError("unexpected payload")
+        return real(survey, oid)
+
+    monkeypatch.setattr(client, "detections", flaky)
+    store = Store.connect(ingest_dsn)
+    try:
+        res = run(store, client, surveys=("lsst",), cfg=Config(), now=NOW)
+    finally:
+        store.close()
+    assert res.status == "success"
+    assert len(calls) == 2 and res.objects_enriched == 1
+    assert [e["source"] for e in res.errors] == ["enrich"]
+    assert res.errors[0]["error"].startswith("RuntimeError")
+
+
+def test_enrichment_stops_on_budget_without_demoting_status(ingest_dsn, make_client):
+    client, _ = make_client(alerce())
+    # Start + 1 LSST list page + 1st candidate, then budget expires before 2nd candidate
+    ticks = iter([0.0, 1.0, 2.0] + [500.0] * 20)
+    store = Store.connect(ingest_dsn)
+    try:
+        res = run(
+            store,
+            client,
+            surveys=("lsst",),
+            cfg=Config(time_budget_s=10.0),
+            now=NOW,
+            monotonic=lambda: next(ticks),
+        )
+    finally:
+        store.close()
+    assert res.status == "success"
+    assert res.objects_enriched == 1

@@ -14,12 +14,16 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
-from .normalize import ClassificationRow, ObjectRow
+from .normalize import ClassificationRow, DetectionRow, ObjectRow
 
 LOCK_KEY = 0x5C7A1E28
 # A run is considered alive for this long. Vercel kills functions at 300 s, so a
 # 'running' row older than this belongs to a dead invocation.
 LEASE_SECONDS = 600
+
+SKIP_CLASSES: list[str] = ["bogus", "asteroid"]
+TIER1_CLASSES: list[str] = ["SN", "SNIa", "SNIbc", "SNII", "SLSN", "TDE", "KN", "CV/Nova"]
+TIER3_CLASSES: list[str] = ["AGN", "QSO", "Blazar"]
 
 _TAKE_TOP = (
     "(EXCLUDED.top_class IS NOT NULL AND (objects.top_classifier IS DISTINCT FROM "
@@ -61,6 +65,37 @@ ON CONFLICT (survey, oid, classifier_name, classifier_version, class_name) DO UP
     probability = EXCLUDED.probability,
     ranking     = EXCLUDED.ranking,
     ingested_at = now()
+"""
+
+UPSERT_DETECTION = """
+INSERT INTO detections (survey, oid, measurement_id, mjd, band, mag, mag_err,
+                        flux_njy, flux_err_njy, raw)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (survey, oid, measurement_id) DO UPDATE SET
+    mjd          = EXCLUDED.mjd,
+    band         = EXCLUDED.band,
+    mag          = EXCLUDED.mag,
+    mag_err      = EXCLUDED.mag_err,
+    flux_njy     = EXCLUDED.flux_njy,
+    flux_err_njy = EXCLUDED.flux_err_njy,
+    raw          = EXCLUDED.raw,
+    ingested_at  = now()
+"""
+
+ENRICHMENT_CANDIDATES = """
+SELECT survey, oid
+  FROM objects
+ WHERE last_ingest_run_id = %s
+   AND (top_class IS NULL OR NOT (top_class = ANY(%s)))
+   AND (enriched_lastmjd IS NULL OR lastmjd > enriched_lastmjd)
+ ORDER BY CASE
+              WHEN top_class = ANY(%s) THEN 1
+              WHEN top_class = ANY(%s) THEN 3
+              ELSE 2
+          END ASC,
+          top_probability DESC NULLS LAST,
+          lastmjd DESC NULLS LAST
+ LIMIT %s
 """
 
 
@@ -115,13 +150,16 @@ class Store:
         objects_seen: int,
         objects_upserted: int,
         classifications_upserted: int,
+        objects_enriched: int = 0,
+        detections_upserted: int = 0,
         requests: int,
         errors: list[dict[str, Any]],
         duration_ms: int,
     ) -> None:
         self.conn.execute(
             """UPDATE ingest_runs SET finished_at = now(), status = %s, objects_seen = %s,
-                   objects_upserted = %s, classifications_upserted = %s, requests = %s,
+                   objects_upserted = %s, classifications_upserted = %s,
+                   objects_enriched = %s, detections_upserted = %s, requests = %s,
                    error_count = %s, errors = %s, duration_ms = %s
                WHERE id = %s""",
             (
@@ -129,6 +167,8 @@ class Store:
                 objects_seen,
                 objects_upserted,
                 classifications_upserted,
+                objects_enriched,
+                detections_upserted,
                 requests,
                 len(errors),
                 Jsonb(errors[:50]),  # cap stored detail
@@ -197,6 +237,73 @@ class Store:
                     ],
                 )
         return len(objects), len(classifications)
+
+    def upsert_detections(self, detections: Sequence[DetectionRow]) -> int:
+        if not detections:
+            return 0
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            cur.executemany(UPSERT_DETECTION, _detection_params(detections))
+        return len(detections)
+
+    def enrichment_candidates(self, run_id: int, limit: int) -> list[tuple[str, str]]:
+        if limit <= 0:
+            return []
+        rows = self.conn.execute(
+            ENRICHMENT_CANDIDATES,
+            (run_id, SKIP_CLASSES, TIER1_CLASSES, TIER3_CLASSES, limit),
+        ).fetchall()
+        return [(str(r[0]), str(r[1])) for r in rows]
+
+    def enrich_object(
+        self,
+        survey: str,
+        oid: str,
+        detections: Sequence[DetectionRow],
+        classifications: Sequence[ClassificationRow],
+    ) -> tuple[int, int]:
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            if detections:
+                cur.executemany(UPSERT_DETECTION, _detection_params(detections))
+            if classifications:
+                cur.executemany(
+                    UPSERT_CLASSIFICATION,
+                    [
+                        (
+                            c.survey,
+                            c.oid,
+                            c.classifier_name,
+                            c.classifier_version,
+                            c.class_name,
+                            c.probability,
+                            c.ranking,
+                        )
+                        for c in classifications
+                    ],
+                )
+            cur.execute(
+                "UPDATE objects SET enriched_at = now(), enriched_lastmjd = lastmjd"
+                " WHERE survey = %s AND oid = %s",
+                (survey, oid),
+            )
+        return len(detections), len(classifications)
+
+
+def _detection_params(detections: Sequence[DetectionRow]) -> list[tuple[Any, ...]]:
+    return [
+        (
+            d.survey,
+            d.oid,
+            d.measurement_id,
+            d.mjd,
+            d.band,
+            d.mag,
+            d.mag_err,
+            d.flux_njy,
+            d.flux_err_njy,
+            Jsonb(d.raw, dumps=_dumps),
+        )
+        for d in detections
+    ]
 
 
 def _clean_str(s: str) -> str:
