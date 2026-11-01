@@ -49,6 +49,21 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 22. **Artifacts (`bogus`, roughly a third of LSST rows) are hidden by default** behind a "Show artifacts" toggle. "Most notable" ordering uses the same tiers as ingest enrichment (#18): explosions and outbursts first, active galaxies last.
 23. **ALeRCE explorer link for LSST objects is `alerce.online/object/?oid=<id>&survey=lsst`.** It is the form reported working on the Rubin community forum; ALeRCE hasn't documented one. Re-check if links break.
 
+## 2026-11-01 — Phase 2 (admin)
+
+24. **Admin sign-in is a small GitHub OAuth flow written in-house, not Auth.js.** We have one user and one provider, and the hand-written version is about 150 audited lines with no new dependencies. Details:
+    - **OAuth:** web application flow requesting no scopes. The access token is used once to read the numeric user id, then discarded.
+    - **Session:** stateless HMAC-SHA256-signed cookie `__Host-skyalerts_admin` (HttpOnly, Secure, SameSite=Lax, 8 h, Web Crypto).
+    - **Allowlist:** numeric ids in `ADMIN_GITHUB_IDS`, re-checked on every request, so removing an id takes effect immediately. Rotating `ADMIN_SESSION_SECRET` signs everyone out. Missing or weak config disables admin (fail closed).
+    - **OAuth state:** a 10-minute `__Host-` cookie, compared by HMAC.
+    - **CSRF:** every admin form carries a token bound to that sign-in, verified in the action, on top of Next's server-action Origin/Host check and SameSite.
+    - **Where auth is checked:** the admin layout *and* every page and action call `requireAdmin()`. The proxy is not a guard.
+
+    Reversible: the session API is three functions.
+25. **Admin uses its own database role, `skyalerts_web_admin` (migration 0004), via `ADMIN_DATABASE_URL`.** It has SELECT on data tables and `ingest_runs`, and append-only `INSERT (actor_github_id, action, target, details)` on `audit_log`, with no UPDATE or DELETE anywhere. Public pages keep using `skyalerts_ro` through a separate pool, so a public-page bug can't write.
+26. **Manual re-run: the web app POSTs to the ingest project's `/api/manual/ingest`** with `MANUAL_TRIGGER_SECRET`, which is distinct from `CRON_SECRET` so the web project never holds the cron secret. The audit row is written *before* the call, and if that fails nothing is triggered. The call runs in `after()` within a 300 s `maxDuration`. The ingest lease prevents overlapping runs, and the button is disabled while a run is active.
+27. **Sign-in monitoring:** each sign-in writes a structured log line (`event: admin_sign_in`) for a Vercel log alert, and denied sign-ins are audited with the GitHub id that tried. The digest and settings pages are placeholders until Phase 3, when there is something to configure.
+
 ## Pending / OWNER
 
 - ~~Ingest scheduler~~ → decided, see #13.
