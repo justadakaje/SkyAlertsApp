@@ -1,0 +1,26 @@
+# Version updates. Security updates are enabled separately (repo setting) and
+# bypass the schedule. SLA per SPEC: security PRs merged <=7 days, critical <=48h.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /ingest
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, lane:data]
+    groups:
+      python-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, lane:devops]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # npm (/web) is added in Phase 2 when web/package-lock.json exists.

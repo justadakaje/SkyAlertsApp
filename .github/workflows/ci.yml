@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_AUDIT_VERSION: "2.10.1"
+
+jobs:
+  ingest:
+    name: ingest (lint, test, audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ingest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Detect ingest package
+        id: detect
+        working-directory: .
+        run: |
+          if [ -f ingest/pyproject.toml ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: steps.detect.outputs.present == 'true'
+        with:
+          enable-cache: true
+          cache-dependency-glob: ingest/uv.lock
+
+      - name: Install (locked)
+        if: steps.detect.outputs.present == 'true'
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        if: steps.detect.outputs.present == 'true'
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        if: steps.detect.outputs.present == 'true'
+        run: uv run ruff format --check .
+
+      - name: Tests
+        if: steps.detect.outputs.present == 'true'
+        run: uv run pytest -q
+
+      - name: pip-audit (runtime deps)
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          uv export --frozen --no-dev --no-emit-project --format requirements-txt > "$RUNNER_TEMP/requirements.txt"
+          uvx "pip-audit==${PIP_AUDIT_VERSION}" --strict --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+  web:
+    name: web (lint, test, audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Detect web app
+        id: detect
+        run: |
+          if [ -f web/package-lock.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "web/ not present yet (Phase 2) — skipping"; fi
+      - name: Install, lint, test, audit
+        if: steps.detect.outputs.present == 'true'
+        working-directory: web
+        run: |
+          npm ci --ignore-scripts
+          npm run lint
+          npm test --if-present
+          npm audit --audit-level=high
+
+  # Single stable check name for branch protection.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [ingest, web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All CI jobs passed
+        run: |
+          if [ "${{ needs.ingest.result }}" != "success" ] || [ "${{ needs.web.result }}" != "success" ]; then
+            echo "ingest=${{ needs.ingest.result }} web=${{ needs.web.result }}"; exit 1
+          fi

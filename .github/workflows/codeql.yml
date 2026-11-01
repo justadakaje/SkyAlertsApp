@@ -1,0 +1,53 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 7 * * 1" # weekly, Mon 07:17 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Lanes land incrementally (web/ arrives in Phase 2); skip languages with no source yet
+      # instead of failing with "no code found".
+      - name: Detect source for language
+        id: detect
+        env:
+          LANG_ID: ${{ matrix.language }}
+        run: |
+          case "$LANG_ID" in
+            python) pat='*.py' ;;
+            javascript-typescript) pat='*.[jt]s *.[jt]sx *.mjs *.cjs' ;;
+            actions) pat='.github/workflows/*.yml' ;;
+          esac
+          # shellcheck disable=SC2086
+          if [ -n "$(git ls-files -- $pat | head -1)" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "No $LANG_ID source yet — skipping"; fi
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: steps.detect.outputs.present == 'true'
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: steps.detect.outputs.present == 'true'
+        with:
+          category: /language:${{ matrix.language }}
