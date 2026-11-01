@@ -1,0 +1,33 @@
+[project]
+name = "skyalerts-db"
+version = "0.1.0"
+description = "Sky Alerts: schema migrations and DB tests"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  # Postgres driver (binary wheels; no system libpq needed). Same driver the ingest job uses.
+  "psycopg[binary]>=3.3,<3.4",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.2,<10",
+  "ruff>=0.17.3,<0.18",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

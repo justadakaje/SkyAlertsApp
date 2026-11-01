@@ -1,0 +1,45 @@
+name: DB migrate
+
+# Applies db/migrations to Neon as skyalerts_admin. Gated by the `production`
+# environment (owner approval required); DATABASE_URL_ADMIN is an environment
+# secret and never leaves GitHub.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List pending migrations only"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    defaults:
+      run:
+        working-directory: db
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: db/uv.lock
+      - run: uv sync --frozen --no-dev
+      - name: Migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_ADMIN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL_ADMIN secret is not set on the production environment"; exit 1; fi
+          if [ "$DRY_RUN" = "true" ]; then uv run python migrate.py --dry-run; else uv run python migrate.py; fi
