@@ -8,8 +8,10 @@ Strategy (fits Vercel Hobby: one run/day, 300 s max; see docs/decisions.md #13):
 - LSST list rows already carry the top classification.
 - ZTF list rows only carry a class when filtered by classifier, so ZTF is
   paged once per classifier; stamp first, then lc (lc wins as top_class).
-- Upserts are idempotent; an advisory lock serialises overlapping runs.
-- Run outcome: success | partial (budget hit or some sources failed) | failed.
+- Upserts are idempotent; a lease row in ingest_runs (claimed under a
+  transaction-scoped advisory lock, so it is PgBouncer-safe) serialises runs.
+- Run outcome: success | partial (budget/page cap hit, a source failed, rows
+  rejected) | failed. Only success advances the catch-up window.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+import psycopg
 
 from . import logutil
 from .alerce_client import AlerceClient, AlerceError
@@ -43,7 +47,7 @@ SOURCES: list[tuple[str, str | None]] = [
 @dataclass
 class Config:
     page_size: int = 100
-    max_pages_per_source: int = 10
+    max_pages_per_source: int = 20
     default_lookback_days: float = 2.0
     max_lookback_days: float = 7.0
     time_budget_s: float = 240.0  # leave headroom under Vercel's 300 s
@@ -97,14 +101,15 @@ def run(
 ) -> RunResult:
     cfg = cfg or Config()
     started = monotonic()
-    if not store.try_lock():
-        log.warning("another ingest run holds the lock; skipping")
+    run_id = store.start_run(trigger, surveys)
+    if run_id is None:
+        log.warning("another ingest run holds the lease; skipping")
         return RunResult(run_id=None, status="skipped")
 
-    run_id = store.start_run(trigger, surveys)
     res = RunResult(run_id=run_id, status="running")
     requests_before = client.request_count
     budget_hit = False
+    truncated: set[str] = set()  # sources that hit the page cap before reaching the floor
     try:
         now_mjd = datetime_to_mjd(now or datetime.now(UTC))
         floor = catchup_floor_mjd(store, now_mjd, cfg)
@@ -114,6 +119,7 @@ def run(
             if survey not in surveys:
                 continue
             source = f"{survey}:{classifier or 'default'}"
+            reached_end = False
             for page in range(1, cfg.max_pages_per_source + 1):
                 if monotonic() - started > cfg.time_budget_s:
                     budget_hit = True
@@ -129,6 +135,7 @@ def run(
                 except AlerceError as exc:
                     res.errors.append({"source": source, "page": page, "error": str(exc)[:500]})
                     log.error("source failed", extra={"source": source, "error": str(exc)})
+                    reached_end = True  # counted as a failed source, not a truncation
                     break
 
                 objs: list[ObjectRow] = []
@@ -146,7 +153,14 @@ def run(
                     if o.lastmjd is not None:
                         oldest = o.lastmjd if oldest is None else min(oldest, o.lastmjd)
                 res.objects_seen += len(rows)
-                n_o, n_c = store.upsert_batch(run_id, objs, clss)
+                try:
+                    n_o, n_c = store.upsert_batch(run_id, objs, clss)
+                except psycopg.Error as exc:
+                    # One bad page must not sink the run; record it and move on.
+                    res.errors.append({"source": source, "page": page, "error": f"db: {exc}"[:500]})
+                    log.error("page upsert failed", extra={"source": source, "page": page})
+                    reached_end = True
+                    break
                 res.objects_upserted += n_o
                 res.classifications_upserted += n_c
                 log.info(
@@ -154,20 +168,26 @@ def run(
                     extra={"source": source, "page": page, "rows": len(rows), "upserted": n_o},
                 )
                 if len(rows) < cfg.page_size or (oldest is not None and oldest < floor):
+                    reached_end = True
                     break
+            if not reached_end and not budget_hit:
+                truncated.add(source)
+                log.warning("page cap reached before catch-up floor", extra={"source": source})
             if budget_hit:
                 break
 
         attempted = sum(1 for s, _ in SOURCES if s in surveys)
         failed_sources = len({e["source"] for e in res.errors})
+        if truncated:
+            res.errors.append({"source": "paging", "error": f"page cap hit: {sorted(truncated)}"})
+        if res.rejected:
+            res.errors.append({"source": "normalize", "error": f"{res.rejected} rows rejected"})
         if failed_sources and failed_sources >= attempted:
             res.status = "failed"
-        elif failed_sources or budget_hit or res.rejected:
+        elif failed_sources or budget_hit or truncated or res.rejected:
             res.status = "partial"
         else:
             res.status = "success"
-        if res.rejected:
-            res.errors.append({"source": "normalize", "error": f"{res.rejected} rows rejected"})
     except Exception as exc:  # record, then re-raise: no silent failures
         res.status = "failed"
         res.errors.append({"source": "ingest", "error": f"{type(exc).__name__}: {exc}"[:500]})
@@ -187,8 +207,9 @@ def run(
                 errors=res.errors,
                 duration_ms=res.duration_ms,
             )
-        finally:
-            store.unlock()
+        except Exception:
+            # Don't mask the original error; the lease expires on its own.
+            log.exception("could not record run outcome", extra={"run_id": run_id})
         log.info("ingest finished", extra=res.as_dict())
     return res
 

@@ -57,20 +57,25 @@ def _float(v: Any, lo: float | None = None, hi: float | None = None) -> float | 
     return f
 
 
-def _int(v: Any) -> int | None:
+INT32_MAX = 2**31 - 1
+INT16_MAX = 2**15 - 1
+
+
+def _int(v: Any, hi: int = INT32_MAX) -> int | None:
     if v is None or isinstance(v, bool):
         return None
     try:
         i = int(str(v).strip())  # ZTF ndethist is a string
     except (TypeError, ValueError):
         return None
-    return i if i >= 0 else None
+    return i if 0 <= i <= hi else None
 
 
 def _text(v: Any) -> str | None:
     if v is None:
         return None
-    s = "".join(ch for ch in str(v) if ch.isprintable()).strip()
+    s = "".join(ch for ch in str(v) if ch.isprintable() and not "\ud800" <= ch <= "\udfff")
+    s = s.strip()
     return s[:MAX_TEXT] or None
 
 
@@ -109,7 +114,7 @@ def normalize_object(
         raise ValueError(f"unknown survey {survey!r}")
 
     prob = _float(row.get("probability"), 0.0, 1.0)
-    ranking = _int(row.get("ranking"))
+    ranking = _int(row.get("ranking"), hi=INT16_MAX)
     has_class = bool(class_name and classifier and prob is not None)
 
     obj = ObjectRow(

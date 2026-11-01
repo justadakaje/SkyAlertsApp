@@ -16,7 +16,15 @@ from psycopg.types.json import Jsonb
 
 from .normalize import ClassificationRow, ObjectRow
 
-LOCK_KEY = 0x5C7A1E28  # one ingest at a time across overlapping/duplicate cron calls
+LOCK_KEY = 0x5C7A1E28
+# A run is considered alive for this long. Vercel kills functions at 300 s, so a
+# 'running' row older than this belongs to a dead invocation.
+LEASE_SECONDS = 600
+
+_TAKE_TOP = (
+    "(EXCLUDED.top_class IS NOT NULL AND (objects.top_classifier IS DISTINCT FROM "
+    "'lc_classifier' OR EXCLUDED.top_classifier = 'lc_classifier'))"
+)
 
 UPSERT_OBJECT = """
 INSERT INTO objects (survey, oid, meanra, meandec, firstmjd, lastmjd, ndet, n_forced, stellar,
@@ -31,18 +39,19 @@ ON CONFLICT (survey, oid) DO UPDATE SET
     ndet                   = COALESCE(EXCLUDED.ndet, objects.ndet),
     n_forced               = COALESCE(EXCLUDED.n_forced, objects.n_forced),
     stellar                = COALESCE(EXCLUDED.stellar, objects.stellar),
-    top_class              = COALESCE(EXCLUDED.top_class, objects.top_class),
-    top_classifier         = CASE WHEN EXCLUDED.top_class IS NULL THEN objects.top_classifier
-                                  ELSE EXCLUDED.top_classifier END,
-    top_classifier_version = CASE WHEN EXCLUDED.top_class IS NULL
-                                  THEN objects.top_classifier_version
-                                  ELSE EXCLUDED.top_classifier_version END,
-    top_probability        = CASE WHEN EXCLUDED.top_class IS NULL THEN objects.top_probability
-                                  ELSE EXCLUDED.top_probability END,
+    -- Top class precedence: never let a non-lc classifier overwrite an lc result.
+    top_class              = CASE WHEN {take} THEN EXCLUDED.top_class
+                                  ELSE objects.top_class END,
+    top_classifier         = CASE WHEN {take} THEN EXCLUDED.top_classifier
+                                  ELSE objects.top_classifier END,
+    top_classifier_version = CASE WHEN {take} THEN EXCLUDED.top_classifier_version
+                                  ELSE objects.top_classifier_version END,
+    top_probability        = CASE WHEN {take} THEN EXCLUDED.top_probability
+                                  ELSE objects.top_probability END,
     raw                    = EXCLUDED.raw,
     last_ingested_at       = now(),
     last_ingest_run_id     = EXCLUDED.last_ingest_run_id
-"""
+""".replace("{take}", _TAKE_TOP)
 
 UPSERT_CLASSIFICATION = """
 INSERT INTO classifications (survey, oid, classifier_name, classifier_version, class_name,
@@ -69,19 +78,33 @@ class Store:
     def close(self) -> None:
         self.conn.close()
 
-    # -- locking ----------------------------------------------------------
-    def try_lock(self) -> bool:
-        return bool(self.conn.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_KEY,)).fetchone()[0])
+    # -- runs / lease ------------------------------------------------------
+    def start_run(self, trigger: str, surveys: Sequence[str]) -> int | None:
+        """Claim the ingest lease and open a run, or return None if a live run exists.
 
-    def unlock(self) -> None:
-        self.conn.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
-
-    # -- runs -------------------------------------------------------------
-    def start_run(self, trigger: str, surveys: Sequence[str]) -> int:
-        row = self.conn.execute(
-            "INSERT INTO ingest_runs (trigger, surveys) VALUES (%s, %s) RETURNING id",
-            (trigger, list(surveys)),
-        ).fetchone()
+        Uses a *transaction-scoped* advisory lock (safe behind PgBouncer
+        transaction pooling) to serialise the check-and-insert. Stale 'running'
+        rows from killed invocations are closed as failed.
+        """
+        with self.conn.transaction():
+            self.conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_KEY,))
+            self.conn.execute(
+                """UPDATE ingest_runs
+                      SET status = 'failed', finished_at = now(), error_count = error_count + 1,
+                          errors = errors || '[{"source": "lease", "error": "abandoned run"}]'
+                    WHERE status = 'running'
+                      AND started_at < now() - make_interval(secs => %s)""",
+                (LEASE_SECONDS,),
+            )
+            live = self.conn.execute(
+                "SELECT 1 FROM ingest_runs WHERE status = 'running' LIMIT 1"
+            ).fetchone()
+            if live:
+                return None
+            row = self.conn.execute(
+                "INSERT INTO ingest_runs (trigger, surveys) VALUES (%s, %s) RETURNING id",
+                (trigger, list(surveys)),
+            ).fetchone()
         return int(row[0])
 
     def finish_run(
@@ -115,10 +138,10 @@ class Store:
         )
 
     def last_success_mjd_floor(self) -> float | None:
-        """Max lastmjd seen as of the last successful/partial run (for catch-up windows)."""
+        """Start time (as MJD) of the last fully successful run. Partial runs don't
+        advance the catch-up window, so their gaps get re-fetched next time."""
         row = self.conn.execute(
-            """SELECT extract(epoch FROM max(started_at)) FROM ingest_runs
-               WHERE status IN ('success', 'partial')"""
+            "SELECT extract(epoch FROM max(started_at)) FROM ingest_runs WHERE status = 'success'"
         ).fetchone()
         if row is None or row[0] is None:
             return None
@@ -176,14 +199,19 @@ class Store:
         return len(objects), len(classifications)
 
 
+def _clean_str(s: str) -> str:
+    # jsonb rejects NUL and unpaired UTF-16 surrogates.
+    return s.replace("\x00", "").encode("utf-8", "replace").decode("utf-8").replace("\ufffd", "")
+
+
 def _clean(v: Any) -> Any:
     """Make upstream JSON safe for jsonb: NaN/Inf -> null, strip NUL bytes."""
     if isinstance(v, float):
         return v if math.isfinite(v) else None
     if isinstance(v, str):
-        return v.replace("\x00", "")
+        return _clean_str(v)
     if isinstance(v, dict):
-        return {str(k).replace("\x00", ""): _clean(x) for k, x in v.items()}
+        return {_clean_str(str(k)): _clean(x) for k, x in v.items()}
     if isinstance(v, list):
         return [_clean(x) for x in v]
     return v

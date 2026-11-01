@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: ci-only-not-a-secret
         ports: ["5432:5432"]
@@ -75,12 +75,12 @@ jobs:
           uvx "pip-audit==${PIP_AUDIT_VERSION}" --strict --require-hashes -r "$RUNNER_TEMP/requirements.txt"
 
   db:
-    name: db (migrations + grants on Postgres 17)
+    name: db (migrations + grants on Postgres 18)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: ci-only-not-a-secret
         ports: ["5432:5432"]

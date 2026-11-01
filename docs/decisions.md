@@ -37,6 +37,9 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 
 15. **The agent never handles database passwords or other runtime secrets.** Putting app-role passwords through the agent's tool calls was blocked as credential leakage, which is correct. The owner sets role passwords (Neon SQL editor or `psql \\password`) and pastes connection strings and `CRON_SECRET` straight into Vercel and GitHub encrypted settings. The agent manages schema and config only.
 
+16. **Database of record is the Vercel-managed Neon project `neon-skyalerts-pgsqldb` (OWNER decision 2026-11-01).** Project `lively-leaf-84959387`, Postgres 18, database `neondb`, owner `neondb_owner`, us-east-1, connected to no Vercel project, so no auto-injected owner URL. Migrations 0001 and 0002 were applied there through the Neon connector, with checksums matching `migrate.py`. The console-created `skyalerts` project from #14 is superseded and pending deletion with owner approval. CI moved to Postgres 18.
+17. **The ingest run lock is a lease row, not a session advisory lock** (QA finding on PR #7). Session locks leak behind Neon's PgBouncer transaction pooling, and also when Vercel kills the function, which would make every later run skip silently. Now: a transaction-scoped `pg_advisory_xact_lock` guards check-and-insert of a `running` row, and rows older than 10 min are closed as failed. Only `success` runs advance the catch-up window, and hitting the page cap counts as `partial`.
+
 ## Pending / OWNER
 
 - ~~Ingest scheduler~~ → decided, see #13.

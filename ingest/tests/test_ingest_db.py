@@ -128,18 +128,112 @@ def test_all_sources_down_is_failed(ingest_dsn, make_client):
     assert res.status == "failed"
 
 
-def test_lock_prevents_concurrent_runs(ingest_dsn, make_client):
+def test_lease_prevents_concurrent_runs(ingest_dsn, make_client):
     client, seen = make_client(alerce())
     holder = Store.connect(ingest_dsn)
     store = Store.connect(ingest_dsn)
     try:
-        assert holder.try_lock()
+        assert holder.start_run("cli", ["lsst"]) is not None  # live 'running' row
         res = run(store, client, cfg=Config(), now=NOW)
         assert res.status == "skipped" and res.run_id is None and seen == []
     finally:
-        holder.unlock()
         holder.close()
         store.close()
+
+
+def test_abandoned_lease_is_reclaimed(ingest_dsn, make_client):
+    admin = conninfo.make_conninfo(
+        ADMIN_URL, dbname=conninfo.conninfo_to_dict(ingest_dsn)["dbname"]
+    )
+    with psycopg.connect(admin, autocommit=True) as c:
+        c.execute(
+            "INSERT INTO ingest_runs (trigger, surveys, started_at)"
+            " VALUES ('cron', '{lsst}', now() - interval '1 hour')"
+        )
+    client, _ = make_client(alerce())
+    store = Store.connect(ingest_dsn)
+    try:
+        res = run(store, client, cfg=Config(), now=NOW)
+    finally:
+        store.close()
+    assert res.status == "success"
+    with psycopg.connect(ingest_dsn) as c:
+        statuses = [r[0] for r in c.execute("SELECT status FROM ingest_runs ORDER BY id")]
+    assert statuses == ["failed", "success"]
+
+
+def test_page_cap_before_floor_is_partial(ingest_dsn, make_client):
+    full = load_fixture("lsst_objects.json")["items"]
+
+    def handler(req):
+        page = int(req.url.params["page"])
+        items = [dict(it, oid=int(f"{page}{i:03d}"), lastmjd=61344.9) for i, it in enumerate(full)]
+        return httpx.Response(200, json={"items": items})
+
+    client, _ = make_client(handler)
+    store = Store.connect(ingest_dsn)
+    try:
+        res = run(
+            store,
+            client,
+            surveys=("lsst",),
+            cfg=Config(page_size=len(full), max_pages_per_source=2),
+            now=NOW,
+        )
+    finally:
+        store.close()
+    assert res.status == "partial"
+    assert any(e["source"] == "paging" for e in res.errors)
+
+
+def test_bad_row_does_not_sink_run(ingest_dsn, make_client):
+    items = load_fixture("lsst_objects.json")["items"]
+    bad = dict(items[0], oid=42, ranking=40000, n_det="3000000000", class_name="VS\ud800x")
+
+    def handler(req):
+        if req.url.host == "lsst.test" and req.url.params.get("page") == "1":
+            return httpx.Response(
+                200,
+                content=__import__("json").dumps({"items": [bad, *items[1:]]}).encode(),
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(200, json={"items": []})
+
+    client, _ = make_client(handler)
+    store = Store.connect(ingest_dsn)
+    try:
+        res = run(store, client, surveys=("lsst",), cfg=Config(), now=NOW)
+    finally:
+        store.close()
+    assert res.status == "success", res.errors
+    with psycopg.connect(ingest_dsn) as c:
+        (ndet,) = c.execute("SELECT ndet FROM objects WHERE oid = '42'").fetchone()
+    assert ndet is None
+
+
+def test_stamp_never_overwrites_lc_top_class(ingest_dsn):
+    from skyalerts_ingest.normalize import normalize_object
+
+    store = Store.connect(ingest_dsn)
+    try:
+        run_id = store.start_run("cli", ["ztf"])
+        base = {"oid": "ZTF26x", "meanra": 1.0, "meandec": 1.0, "lastmjd": 61344.0}
+        lc = normalize_object(
+            "ztf", base | {"class": "SNIa", "classifier": "lc_classifier", "probability": 0.8}
+        )
+        st = normalize_object(
+            "ztf", base | {"class": "SN", "classifier": "stamp_classifier", "probability": 0.9}
+        )
+        store.upsert_batch(run_id, [lc[0]], [lc[1]])
+        store.upsert_batch(run_id, [st[0]], [st[1]])
+    finally:
+        store.close()
+    with psycopg.connect(ingest_dsn) as c:
+        row = c.execute(
+            "SELECT top_class, top_classifier FROM objects WHERE oid='ZTF26x'"
+        ).fetchone()
+        n = c.execute("SELECT count(*) FROM classifications WHERE oid='ZTF26x'").fetchone()[0]
+    assert row == ("SNIa", "lc_classifier") and n == 2
 
 
 def test_time_budget_marks_partial(ingest_dsn, make_client):
