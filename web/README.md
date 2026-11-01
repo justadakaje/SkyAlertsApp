@@ -7,7 +7,8 @@ The public Sky Alerts site (Next.js 16, App Router), served at **https://sky.hen
 | `/` | Latest events, filterable by class, survey and time window; "most notable" or newest first; artifacts hidden by default |
 | `/objects/[survey]/[oid]` | One object: class and plain-English blurb, key facts, light curve, classifier probabilities, sky position, ALeRCE link |
 | `/stats` | Totals, new objects per day (stacked by class group), per-class counts by week |
-
+| `/about` | Plain-English guide to Sky Alerts, how to read light curves and sky maps, class groups, and data credits |
+| `/skyalerts-explainer.html` | Static interactive architecture and pipeline explainer ("How It Works") |
 | `/admin` | Owner only (GitHub sign-in): ingest health, runs and their errors, manual re-run, audit log, config status. Digest preview/send arrives with Phase 3 |
 
 ## Run locally

@@ -13,6 +13,15 @@ export const metadata: Metadata = {
   title: { default: 'Sky Alerts', template: '%s · Sky Alerts' },
   description:
     'What the sky did last night: supernovae, variable stars and more, from the ALeRCE broker (Rubin + ZTF).',
+  openGraph: {
+    siteName: 'Sky Alerts',
+    type: 'website',
+    url: 'https://sky.henseler.app',
+    locale: 'en_US',
+  },
+  twitter: {
+    card: 'summary_large_image',
+  },
 }
 
 export const viewport: Viewport = {
@@ -42,6 +51,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <nav aria-label="Main">
               <Link href="/">Events</Link>
               <Link href="/stats">Stats</Link>
+              <Link href="/about">About</Link>
               <a href="/skyalerts-explainer.html">How It Works</a>
             </nav>
           </div>

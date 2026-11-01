@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatAgo, formatCount, formatDay, formatProbability, formatUtc } from '@/lib/format'
+import { dateToMjd } from '@/lib/astro'
+import { classesByGroup, GROUPS } from '@/lib/classes'
+import {
+  formatAgo,
+  formatCount,
+  formatDay,
+  formatObjectDescription,
+  formatProbability,
+  formatUtc,
+} from '@/lib/format'
 
 const now = new Date('2026-11-01T12:00:00Z')
 
@@ -26,5 +35,35 @@ describe('format', () => {
     expect(formatCount(1284)).toBe('1.3K')
     expect(formatCount(12_900)).toBe('13K')
     expect(formatCount(4_200_000)).toBe('4.2M')
+  })
+
+  it('builds per-object share descriptions with fallbacks for missing fields', () => {
+    const firstmjd = dateToMjd(new Date('2026-10-31T06:00:00Z'))
+    expect(
+      formatObjectDescription({
+        survey: 'lsst',
+        topClass: 'SN',
+        probability: 0.85,
+        firstmjd,
+      }),
+    ).toBe('Supernova · 85% confidence · Rubin (LSST) · first seen 2026-10-31')
+
+    expect(
+      formatObjectDescription({
+        survey: 'ztf',
+        topClass: null,
+        probability: null,
+        firstmjd: null,
+      }),
+    ).toBe('Unclassified · ZTF')
+  })
+
+  it('groups known classes by display group without duplicating labels', () => {
+    for (const g of GROUPS) {
+      const items = classesByGroup(g.id)
+      expect(items.length).toBeGreaterThan(0)
+      const labels = items.map((c) => c.label)
+      expect(new Set(labels).size).toBe(labels.length)
+    }
   })
 })
