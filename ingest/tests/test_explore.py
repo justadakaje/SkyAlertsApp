@@ -14,11 +14,11 @@ def router(lsst_status: int = 200, ztf_status: int = 200):
         if host == "ztf.test":
             if ztf_status != 200:
                 return httpx.Response(ztf_status)
-            if path == "/ztf/v1/objects":
+            if path == "/ztf/v1/objects/":
                 return httpx.Response(200, json=load_fixture("ztf_objects.json"))
             if path.endswith("/probabilities"):
                 return httpx.Response(200, json=load_fixture("ztf_probabilities.json"))
-            if path == "/ztf/v1/classifiers":
+            if path == "/ztf/v1/classifiers/":
                 return httpx.Response(200, json=load_fixture("ztf_classifiers.json"))
         if host == "lsst.test":
             if lsst_status != 200:

@@ -89,8 +89,18 @@ Schema implication: `oid` stored as `text` with a `survey` column; composite key
 - `lc_classifier` — hierarchical random forest on light-curve features (e.g. `hierarchical_random_forest_1.0.0`; classes include SNIa, SNIbc, SNII, SLSN, AGN, QSO, Blazar, CV/Nova, YSO, LPV, E, DSCT, RRL, CEP, Periodic-Other).
 - ⚠️ Current versions/class lists to be dumped by the explore script via `/classifiers`.
 
+## Live run findings — 2026-11-01 (Explore ALeRCE run 41281922239, 25 objects/survey)
+
+- **ZTF API redirects:** `GET /ztf/v1/objects` answers **308 → `/ztf/v1/objects/`** (same for `/classifiers`). The client now uses trailing slashes and follows same-origin redirects only (max 3). Cross-host redirects are still refused.
+- **LSST list fields (confirmed):** `oid` (int64), `sid`, `tid`, `meanra`, `meandec`, `sigmara`, `sigmadec`, `firstmjd`, `lastmjd`, `deltamjd`, `n_det`, `n_forced`, `n_non_det`, `stellar` (always null so far), `class_name`, `classifier_name`, `classifier_version`, `probability`, `ranking`. Pagination wrapper: `{"items": [...]}`.
+- **LSST classifier:** `stamp_classifier_rubin_beta_20260421` (v2.0.2) on most rows, older `stamp_classifier_rubin_beta` on some. Classes seen: `bogus`, `VS`, `asteroid`, `AGN`.
+- **Data quality:** **13 of 25 newest LSST objects were classed `bogus`** (mean top probability 0.81). Ingest and the dashboard must filter or down-rank bogus.
+- **Freshness:** the newest LSST last detection was **~23 h old** at query time, and all 25 came from one night. Plan for "last night's sky", not real-time.
+- **Latency:** LSST requests took 0.3–0.9 s. No 429s at ≤1 req/s.
+- Artifacts can't be downloaded from the agent workspace (the GitHub blob storage host isn't on its allowlist). Findings come from job logs. You can download the raw samples from the run page.
+
 ## Open items to verify on first live run
-1. LSST `list_objects` response field names and pagination keys.
+1. ~~LSST `list_objects` response field names and pagination keys.~~ Done (see above).
 2. Max accepted `page_size` on both APIs.
 3. Whether either API returns 429 / `Retry-After` under load.
 4. Actual freshness: lag between `lastmjd` and wall clock for newest objects, per survey.

@@ -16,7 +16,7 @@ def test_ztf_list_objects_routes_and_params(make_client):
     items = client.list_objects("ztf", page_size=10, class_name="SNIa", classifier="lc_classifier")
     req = seen[0]
     assert req.url.host == "ztf.test"
-    assert req.url.path == "/ztf/v1/objects"
+    assert req.url.path == "/ztf/v1/objects/"
     q = dict(req.url.params)
     assert q["class"] == "SNIa"  # legacy API name
     assert "class_name" not in q
@@ -147,3 +147,23 @@ def test_does_not_follow_redirects(make_client):
     with pytest.raises(AlerceError, match="redirect") as ei:
         client.ztf_classifiers()
     assert ei.value.status == 302
+
+
+def test_follows_same_origin_redirect_without_consuming_attempts(make_client):
+    # Live ZTF API answers 308 to a trailing-slash path (seen 2026-11-01).
+    def handler(req):
+        if req.url.path == "/old/":
+            return httpx.Response(200, json=[])
+        return httpx.Response(308, headers={"Location": "/old/?a=1"})
+
+    client, seen = make_client(handler, max_attempts=1)
+    assert client._get_json("https://ztf.test/old", {"a": 1}) == []
+    assert [r.url.path for r in seen] == ["/old", "/old/"]
+    assert dict(seen[1].url.params) == {"a": "1"}  # query carried by Location, not duplicated
+
+
+def test_redirect_loop_is_bounded(make_client):
+    client, seen = make_client(lambda req: httpx.Response(308, headers={"Location": "/loop"}))
+    with pytest.raises(AlerceError, match="redirect"):
+        client._get_json("https://ztf.test/loop")
+    assert len(seen) == 4  # 1 + MAX_REDIRECTS

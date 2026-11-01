@@ -30,6 +30,7 @@ DEFAULT_ZTF_URL = "https://api.alerce.online"
 DEFAULT_LSST_URL = "https://api-lsst.alerce.online"
 USER_AGENT = f"skyalerts/{__version__} (+https://github.com/justadakaje/SkyAlertsApp)"
 
+MAX_REDIRECTS = 3
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 MAX_PAGE_SIZE = 100  # self-imposed; ALeRCE publishes no maximum
 
@@ -108,15 +109,30 @@ class AlerceClient:
         base = min(2.0 ** (attempt - 1), self.max_backoff)
         return min(base + random.uniform(0, base / 2), self.max_backoff)
 
+    @staticmethod
+    def _same_origin_redirect(resp: httpx.Response) -> str | None:
+        """Absolute target URL if the redirect stays on the same scheme+host+port, else None."""
+        loc = resp.headers.get("Location")
+        if not loc:
+            return None
+        target = resp.request.url.join(loc)
+        src = resp.request.url
+        if (target.scheme, target.host, target.port) != (src.scheme, src.host, src.port):
+            return None
+        return str(target)
+
     def _get_json(self, url: str, params: Mapping[str, Any] | None = None) -> Any:
         clean = {k: v for k, v in (params or {}).items() if v is not None}
         last_err: str = ""
-        for attempt in range(1, self.max_attempts + 1):
+        redirects = 0
+        attempt = 0
+        while attempt < self.max_attempts:
+            attempt += 1
             self._throttle()
             self.request_count += 1
             started = self._clock()
             try:
-                resp = self._http.get(url, params=clean)
+                resp = self._http.get(url, params=clean or None)
             except httpx.TransportError as exc:
                 last_err = f"{type(exc).__name__}: {exc}"
                 log.warning(
@@ -143,6 +159,13 @@ class AlerceClient:
                     self._sleep(self._backoff(attempt, resp.headers.get("Retry-After")))
                 continue
             if 300 <= resp.status_code < 400:
+                target = self._same_origin_redirect(resp)
+                if target is not None and redirects < MAX_REDIRECTS:
+                    # e.g. ZTF API 308 /objects -> /objects/ ; doesn't consume an attempt
+                    redirects += 1
+                    url, clean = target, {}
+                    attempt -= 1
+                    continue
                 raise AlerceError(
                     f"Unexpected redirect ({resp.status_code}) to {resp.headers.get('Location')!r}",
                     status=resp.status_code,
@@ -194,7 +217,7 @@ class AlerceClient:
         }
         if survey == "ztf":
             params["class"] = class_name  # legacy API name
-            url = f"{self.ztf_url}/ztf/v1/objects"
+            url = f"{self.ztf_url}/ztf/v1/objects/"
         elif survey == "lsst":
             params["survey"] = "lsst"
             params["class_name"] = class_name
@@ -225,7 +248,7 @@ class AlerceClient:
         return [d for d in data if isinstance(d, dict)]
 
     def ztf_classifiers(self) -> list[dict[str, Any]]:
-        url = f"{self.ztf_url}/ztf/v1/classifiers"
+        url = f"{self.ztf_url}/ztf/v1/classifiers/"
         data = self._get_json(url)
         if not isinstance(data, list):
             raise AlerceSchemaError(f"Expected a list of classifiers from {url}", url=url)
