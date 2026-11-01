@@ -105,14 +105,6 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
       - Offset paging over large `lastmjd` tie groups can still reorder rows between pages. A Rubin visit puts hundreds of rows on one timestamp. This risk predates this change.
     - **Reversible:** sources, caps and overlap are constants in `ingest/skyalerts_ingest/ingest.py`, and the `coverage` column is additive. **OWNER:** sign off on complete coverage meaning tier-1 transient classes.
 
-## 2026-11-01 — Phase 2 (public dashboard)
-
-19. **Web stack: Next.js 16 (App Router) + TypeScript 6, plain CSS, `pg`, no chart library.** Four runtime dependencies: `next`, `react`, `react-dom`, `pg`. Plain CSS instead of Tailwind keeps the dependency list short. `pg` instead of `@neondatabase/serverless` means the same driver runs locally, in CI and on Vercel (Neon's pooled endpoint). Charts are server-rendered SVG, which needs no client JavaScript and so keeps the CSP strict. TypeScript is pinned to 6.x: 7.0 is the native-compiler rewrite released days ago, and Dependabot ignores its major version until we adopt it on purpose. Reversible.
-20. **Nonce-based CSP via `proxy.ts`, so every page renders per request; database reads are cached for 10 minutes** (`unstable_cache`, keyed by a 10-minute time bucket). Ingest runs once a day, so cached reads lose nothing and keep the free-tier Neon compute asleep between visits. Static headers (HSTS 2 years with subdomains, nosniff, frame DENY, Referrer-Policy, Permissions-Policy, COOP) live in `next.config.ts`. Reversible: SRI-based CSP (experimental in Next 16) would allow static pages later.
-21. **Light curves:** ZTF is plotted in magnitudes, using ALeRCE's corrected apparent magnitude (`magpsf_corr`) when `corrected` is true. Uncorrected negative differences (`isdiffpos = -1`) have no meaningful magnitude and are left off, with a count in the caption. LSST is plotted as difference flux in µJy, where negative values are real measurements. g/r/i overlay on one chart in a palette checked for colour-vision deficiency; any other band set switches to one panel per band, because six hues can't stay distinguishable.
-22. **Artifacts (`bogus`, roughly a third of LSST rows) are hidden by default** behind a "Show artifacts" toggle. "Most notable" ordering uses the same tiers as ingest enrichment (#18): explosions and outbursts first, active galaxies last.
-23. **ALeRCE explorer link for LSST objects is `alerce.online/object/?oid=<id>&survey=lsst`.** It is the form reported working on the Rubin community forum; ALeRCE hasn't documented one. Re-check if links break.
-
 ## Pending / OWNER
 
 - ~~Ingest scheduler~~ → decided, see #13.
