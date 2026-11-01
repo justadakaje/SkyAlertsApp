@@ -43,15 +43,19 @@ def migrated(db_url):
 
 def test_applies_all_then_is_idempotent(db_url):
     first = migrate.migrate(db_url)
-    assert first == ["0001_init", "0002_roles_and_grants"]
+    assert first == ["0001_init", "0002_roles_and_grants", "0003_enrichment"]
     assert migrate.migrate(db_url) == []
     with psycopg.connect(db_url) as c:
         n = c.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]
-    assert n == 2
+    assert n == 3
 
 
 def test_dry_run_changes_nothing(db_url):
-    assert migrate.migrate(db_url, dry_run=True) == ["0001_init", "0002_roles_and_grants"]
+    assert migrate.migrate(db_url, dry_run=True) == [
+        "0001_init",
+        "0002_roles_and_grants",
+        "0003_enrichment",
+    ]
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('objects')").fetchone()[0] is None
         assert c.execute("SELECT to_regclass('schema_migrations')").fetchone()[0] is None
@@ -69,13 +73,13 @@ def test_checksum_mismatch_is_refused(db_url, tmp_path):
 def test_failed_migration_rolls_back(db_url, tmp_path):
     d = tmp_path / "m"
     shutil.copytree(migrate.MIGRATIONS_DIR, d)
-    (d / "0003_broken.sql").write_text("CREATE TABLE ok_part (x int);\nSELECT * FROM nope;\n")
+    (d / "0004_broken.sql").write_text("CREATE TABLE ok_part (x int);\nSELECT * FROM nope;\n")
     with pytest.raises(psycopg.Error):
         migrate.migrate(db_url, directory=d)
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('ok_part')").fetchone()[0] is None
         versions = [r[0] for r in c.execute("SELECT version FROM schema_migrations")]
-    assert "0003_broken" not in versions and "0002_roles_and_grants" in versions
+    assert "0004_broken" not in versions and "0003_enrichment" in versions
 
 
 def test_bad_filename_rejected(tmp_path):
@@ -107,8 +111,20 @@ def test_ingest_role_privileges(migrated):
             "INSERT INTO classifications (survey, oid, classifier_name, class_name, probability)"
             " VALUES ('lsst', '1', 'stamp', 'VS', 0.9)"
         )
-        c.execute("UPDATE objects SET last_ingest_run_id = %s WHERE oid = '1'", (run_id,))
-        c.execute("UPDATE ingest_runs SET status = 'success' WHERE id = %s", (run_id,))
+        c.execute(
+            "UPDATE objects SET last_ingest_run_id = %s, enriched_at = now(),"
+            " enriched_lastmjd = 61344.5 WHERE oid = '1'",
+            (run_id,),
+        )
+        c.execute(
+            "UPDATE ingest_runs SET status = 'success', objects_enriched = 1,"
+            " detections_upserted = 5 WHERE id = %s",
+            (run_id,),
+        )
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("UPDATE ingest_runs SET started_at = now() WHERE id = %s", (run_id,))
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("UPDATE ingest_runs SET trigger = 'cron' WHERE id = %s", (run_id,))
         with pytest.raises(errors.InsufficientPrivilege):
             c.execute("DELETE FROM objects")
         with pytest.raises(errors.InsufficientPrivilege):
@@ -119,10 +135,27 @@ def test_ingest_role_privileges(migrated):
 
 def test_ro_role_is_read_only(migrated):
     with _as(migrated, "skyalerts_ingest") as c:
+        run_id = c.execute(
+            "INSERT INTO ingest_runs (trigger, surveys) VALUES ('cli', '{lsst}') RETURNING id"
+        ).fetchone()[0]
         c.execute(OBJ, ("2",))
+        c.execute(
+            "UPDATE objects SET enriched_at = now(), enriched_lastmjd = 61000.0 WHERE oid = '2'"
+        )
+        c.execute(
+            "UPDATE ingest_runs SET objects_enriched = 2, detections_upserted = 10 WHERE id = %s",
+            (run_id,),
+        )
     with _as(migrated, "skyalerts_ro") as c:
-        assert c.execute("SELECT count(*) FROM objects").fetchone()[0] == 1
-        c.execute("SELECT count(*) FROM ingest_runs")
+        row = c.execute(
+            "SELECT enriched_at, enriched_lastmjd FROM objects WHERE oid = '2'"
+        ).fetchone()
+        assert row[0] is not None and row[1] == 61000.0
+        r_row = c.execute(
+            "SELECT objects_enriched, detections_upserted FROM ingest_runs WHERE id = %s",
+            (run_id,),
+        ).fetchone()
+        assert r_row == (2, 10)
         with pytest.raises((errors.InsufficientPrivilege, errors.ReadOnlySqlTransaction)):
             c.execute(OBJ, ("3",))
         with pytest.raises(errors.InsufficientPrivilege):

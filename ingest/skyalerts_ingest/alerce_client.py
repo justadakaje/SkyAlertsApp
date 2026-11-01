@@ -247,6 +247,21 @@ class AlerceClient:
             raise AlerceSchemaError(f"Expected a list of probabilities from {url}", url=url)
         return [d for d in data if isinstance(d, dict)]
 
+    def detections(self, survey: Survey, oid: str | int) -> list[dict[str, Any]]:
+        if survey == "ztf":
+            url = f"{self.ztf_url}/ztf/v1/objects/{quote(str(oid), safe='')}/detections"
+            data = self._get_json(url)
+        elif survey == "lsst":
+            url = f"{self.lsst_url}/lightcurve_api/detections"
+            data = self._get_json(url, {"survey_id": "lsst", "oid": oid})
+        else:
+            raise ValueError(f"survey must be one of {SURVEYS}")
+        if isinstance(data, dict) and isinstance(data.get("items"), list):
+            data = data["items"]
+        if not isinstance(data, list):
+            raise AlerceSchemaError(f"Expected a list of detections from {url}", url=url)
+        return [d for d in data if isinstance(d, dict)]
+
     def ztf_classifiers(self) -> list[dict[str, Any]]:
         url = f"{self.ztf_url}/ztf/v1/classifiers/"
         data = self._get_json(url)

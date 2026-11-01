@@ -67,12 +67,14 @@ The multisurvey API **rejects `survey=ztf`** ("ZTF is not yet supported in the m
 - Docs list `ndethist` as string though it's a count — ⚠️ coerce defensively.
 - Times are **MJD** (UTC). Unix seconds = `(mjd − 40587) × 86400`.
 
-### Probability (both surveys)
+### Probability (both surveys, confirmed live 2026-11-01)
 `classifier_name`, `classifier_version`, `class_name`, `probability`, `ranking`.
+- **LSST:** `classifier_version` is returned as an **integer** on `/probability_api/probability` (e.g. `1`, `201`, `202` — whereas `list_objects` returns a string like `"2.0.2"`). Coerce `classifier_version` to text. Classifiers seen: `nuclear_classifier`, `stamp_classifier_rubin_beta`, `stamp_classifier_rubin_beta_20260421`.
+- **ZTF:** `/ztf/v1/objects/{oid}/probabilities` returns rows across all historical `(classifier_name, classifier_version)` pairs (~26 combos / ~338 rows on a multi-year object), including `lc_classifier`, `lc_classifier_top`, `lc_classifier_transient`, `lc_classifier_periodic`, `lc_classifier_stochastic`, `lc_classifier_BHRF_forced_phot*`, `LC_classifier_ATAT_forced_phot(beta)`, `LC_classifier_BHRF_forced_phot(beta)`, `stamp_classifier`, and `stamp_classifier_2025_beta`. Keep only the top 3 (`ranking <= 3`) per `(classifier_name, classifier_version)` to bound storage.
 
-### Detections
-- **ZTF:** `oid`, `measurement_id`, `pid`, `diffmaglim`, `isdiffpos`, `nid`, `magpsf`, `sigmapsf`, `magap`, `sigmagap`, `distnr`, `rb`, `rbversion`, `drb`, `drbversion`, `magapbig`, `sigmagapbig`, `rfid`, `magpsf_corr`, `sigmapsf_corr`, `sigmapsf_corr_ext`, `corrected`, `dubious`, `parent_candid`, `has_stamp` (+ `mjd`, `fid` expected ⚠️).
-- **LSST:** `oid` (**integer**), `measurement_id`, `parentDiaSourceId`, `psfFlux`, `psfFluxErr` (nJy), `psfFlux_flag`, `psfFlux_flag_edge`, `psfFlux_flag_noGoodPixels`.
+### Detections (confirmed live 2026-11-01)
+- **ZTF (`/ztf/v1/objects/{oid}/detections`):** rows have **no `measurement_id` and no `oid`**. The unique detection ID is `candid` (string, e.g. `"714503484115010001"`). Band is `fid` (`1`=`g`, `2`=`r`, `3`=`i`). Photometry is `magpsf` and `sigmapsf` (plus `magpsf_corr`, `sigmapsf_corr`, `sigmapsf_corr_ext`, `magap`, `sigmagap`, `magapbig`, `sigmagapbig`, `diffmaglim`). Other fields: `tid`, `mjd`, `pid`, `isdiffpos` (`1`/`-1`), `nid`, `distnr`, `ra`, `dec`, `rb`, `rbversion`, `drb` (sometimes omitted on older/unscored rows), `rfid`, `has_stamp`, `corrected`, `dubious`, `step_id_corr`, `phase`, `parent_candid`.
+- **LSST (`/lightcurve_api/detections?survey_id=lsst&oid={oid}`):** `oid` (int64), `measurement_id` (int64), `mjd`, `band` (int) + `band_map` (`{"6":"u","1":"g","2":"r","3":"i","4":"z","5":"y"}`), `psfFlux` and `psfFluxErr` (difference flux in nJy — **can be negative** when `isNegative` is true, so only convert to AB mag when `psfFlux > 0`), `scienceFlux`, `scienceFluxErr`, `templateFlux`, `templateFluxErr`, `apFlux`, `apFluxErr`, `snr`, `psfFlux_flag`, `isNegative`, `has_stamp`, plus astrometry/shape/dipole/pixel flags (~100 keys per row; store a slim whitelist in `detections.raw`).
 
 ### Key ZTF ↔ LSST differences (drives schema)
 | Concern | ZTF | LSST |
