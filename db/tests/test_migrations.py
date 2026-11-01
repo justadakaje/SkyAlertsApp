@@ -43,11 +43,16 @@ def migrated(db_url):
 
 def test_applies_all_then_is_idempotent(db_url):
     first = migrate.migrate(db_url)
-    assert first == ["0001_init", "0002_roles_and_grants", "0003_enrichment"]
+    assert first == [
+        "0001_init",
+        "0002_roles_and_grants",
+        "0003_enrichment",
+        "0004_ingest_coverage",
+    ]
     assert migrate.migrate(db_url) == []
     with psycopg.connect(db_url) as c:
         n = c.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]
-    assert n == 3
+    assert n == 4
 
 
 def test_dry_run_changes_nothing(db_url):
@@ -55,6 +60,7 @@ def test_dry_run_changes_nothing(db_url):
         "0001_init",
         "0002_roles_and_grants",
         "0003_enrichment",
+        "0004_ingest_coverage",
     ]
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('objects')").fetchone()[0] is None
@@ -73,13 +79,13 @@ def test_checksum_mismatch_is_refused(db_url, tmp_path):
 def test_failed_migration_rolls_back(db_url, tmp_path):
     d = tmp_path / "m"
     shutil.copytree(migrate.MIGRATIONS_DIR, d)
-    (d / "0004_broken.sql").write_text("CREATE TABLE ok_part (x int);\nSELECT * FROM nope;\n")
+    (d / "0005_broken.sql").write_text("CREATE TABLE ok_part (x int);\nSELECT * FROM nope;\n")
     with pytest.raises(psycopg.Error):
         migrate.migrate(db_url, directory=d)
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('ok_part')").fetchone()[0] is None
         versions = [r[0] for r in c.execute("SELECT version FROM schema_migrations")]
-    assert "0004_broken" not in versions and "0003_enrichment" in versions
+    assert "0005_broken" not in versions and "0004_ingest_coverage" in versions
 
 
 def test_bad_filename_rejected(tmp_path):
@@ -118,7 +124,7 @@ def test_ingest_role_privileges(migrated):
         )
         c.execute(
             "UPDATE ingest_runs SET status = 'success', objects_enriched = 1,"
-            " detections_upserted = 5 WHERE id = %s",
+            " detections_upserted = 5, coverage = '{\"lsst:default\": {}}' WHERE id = %s",
             (run_id,),
         )
         with pytest.raises(errors.InsufficientPrivilege):
