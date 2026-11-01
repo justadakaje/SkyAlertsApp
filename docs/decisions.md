@@ -13,6 +13,8 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 7. **Lane/branch model.** Branches are `<lane>/<topic>` (e.g. `devops/phase0-ci`, `data/phase0-explore`). One PR per lane per topic; orchestrator merges with squash.
 8. **Self-imposed ALeRCE rate limit: ≤1 request/second, serial (no concurrency).** ALeRCE publishes no rate limit. Being a polite consumer of a free academic service matters more than throughput; ingest volume (a few hundred objects every few hours) fits comfortably. Tunable via env var.
 
+9. **Repo is public (OWNER-approved 2026-11-01), not private.** On a user-owned private repo GitHub offers no secret scanning/push protection, CodeQL requires a paid org plan, and branch protection requires Pro. Public gives every SPEC §Security control natively for free. Nothing sensitive is in the repo by policy (all secrets in Vercel/GitHub encrypted env vars); the admin allowlist ID is public information. Reversible (can be made private later, losing those controls).
+
 ## Pending / OWNER
 
 - **Ingest scheduler (SPEC asks for a recommendation):** leaning **GitHub Actions cron** over a Vercel Python function — no 60–300 s function duration ceiling, free minutes on a private repo are sufficient for a few short runs/day, logs retained per run, and it keeps the ALeRCE-facing write role off the Vercel runtime. Trade-off: Actions cron can be delayed under load (fine at "every few hours"). Final call at Phase 1 kickoff.
