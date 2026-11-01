@@ -45,3 +45,6 @@ updates:
       # TypeScript 7 is the native-compiler rewrite; adopt it deliberately, not via a bump.
       - dependency-name: typescript
         update-types: [version-update:semver-major]
+      # Types track the pinned runtime (engines.node 26.x, CI and Vercel); bump with the runtime.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]

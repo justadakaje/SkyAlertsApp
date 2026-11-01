@@ -47,12 +47,13 @@ def test_applies_all_then_is_idempotent(db_url):
         "0001_init",
         "0002_roles_and_grants",
         "0003_enrichment",
+        "0004_web_admin_role",
         "0005_ingest_coverage",
     ]
     assert migrate.migrate(db_url) == []
     with psycopg.connect(db_url) as c:
         n = c.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]
-    assert n == 4
+    assert n == 5
 
 
 def test_dry_run_changes_nothing(db_url):
@@ -60,6 +61,7 @@ def test_dry_run_changes_nothing(db_url):
         "0001_init",
         "0002_roles_and_grants",
         "0003_enrichment",
+        "0004_web_admin_role",
         "0005_ingest_coverage",
     ]
     with psycopg.connect(db_url) as c:
@@ -79,13 +81,13 @@ def test_checksum_mismatch_is_refused(db_url, tmp_path):
 def test_failed_migration_rolls_back(db_url, tmp_path):
     d = tmp_path / "m"
     shutil.copytree(migrate.MIGRATIONS_DIR, d)
-    (d / "0099_broken.sql").write_text("CREATE TABLE ok_part (x int);\nSELECT * FROM nope;\n")
+    (d / "0006_broken.sql").write_text("CREATE TABLE ok_part (x int);\nSELECT * FROM nope;\n")
     with pytest.raises(psycopg.Error):
         migrate.migrate(db_url, directory=d)
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('ok_part')").fetchone()[0] is None
         versions = [r[0] for r in c.execute("SELECT version FROM schema_migrations")]
-    assert "0099_broken" not in versions and "0005_ingest_coverage" in versions
+    assert "0006_broken" not in versions and "0005_ingest_coverage" in versions
 
 
 def test_bad_filename_rejected(tmp_path):
@@ -168,13 +170,65 @@ def test_ro_role_is_read_only(migrated):
             c.execute("SELECT * FROM audit_log")
 
 
+def test_web_admin_role_privileges(migrated):
+    with _as(migrated, "skyalerts_ingest") as c:
+        run_id = c.execute(
+            "INSERT INTO ingest_runs (trigger, surveys) VALUES ('cli', '{lsst}') RETURNING id"
+        ).fetchone()[0]
+        c.execute(OBJ, ("admin-1",))
+    with _as(migrated, "skyalerts_web_admin") as c:
+        c.execute("SELECT count(*) FROM objects").fetchone()
+        c.execute("SELECT count(*) FROM classifications").fetchone()
+        c.execute("SELECT count(*) FROM detections").fetchone()
+        c.execute("SELECT count(*) FROM ingest_runs").fetchone()
+        audit_id, audit_at = c.execute(
+            "INSERT INTO audit_log (actor_github_id, action, target, details)"
+            " VALUES (16056018, 'ingest.rerun', 'manual', '{\"ok\": true}'::jsonb)"
+            " RETURNING id, at"
+        ).fetchone()
+        assert audit_id >= 1 and audit_at is not None
+        row = c.execute(
+            "SELECT actor_github_id, action, target, details FROM audit_log WHERE id = %s",
+            (audit_id,),
+        ).fetchone()
+        assert row == (16056018, "ingest.rerun", "manual", {"ok": True})
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute(
+                "INSERT INTO audit_log (id, actor_github_id, action) OVERRIDING SYSTEM VALUE"
+                " VALUES (999, 16056018, 'spoof')"
+            )
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute(
+                "INSERT INTO audit_log (at, actor_github_id, action)"
+                " VALUES ('2000-01-01T00:00:00Z', 16056018, 'backdate')"
+            )
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("UPDATE audit_log SET action = 'tampered' WHERE id = %s", (audit_id,))
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("DELETE FROM audit_log WHERE id = %s", (audit_id,))
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute(OBJ, ("admin-2",))
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("UPDATE objects SET top_class = 'SNIa' WHERE oid = 'admin-1'")
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("DELETE FROM objects WHERE oid = 'admin-1'")
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("INSERT INTO ingest_runs (trigger, surveys) VALUES ('manual', '{lsst}')")
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("UPDATE ingest_runs SET status = 'success' WHERE id = %s", (run_id,))
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("DELETE FROM ingest_runs WHERE id = %s", (run_id,))
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("CREATE TABLE sneaky_admin (x int)")
+
+
 def test_roles_are_not_privileged(migrated):
     with psycopg.connect(migrated) as c:
         rows = c.execute(
             "SELECT rolname, rolsuper, rolcreaterole, rolcreatedb, rolbypassrls FROM pg_roles"
-            " WHERE rolname IN ('skyalerts_ingest', 'skyalerts_ro')"
+            " WHERE rolname IN ('skyalerts_ingest', 'skyalerts_ro', 'skyalerts_web_admin')"
         ).fetchall()
-    assert len(rows) == 2
+    assert len(rows) == 3
     assert all(not any(r[1:]) for r in rows)
 
 
@@ -226,13 +280,15 @@ def test_role_level_settings(migrated):
             c.execute(
                 "SELECT r.rolname, s.setconfig FROM pg_db_role_setting s"
                 " JOIN pg_roles r ON r.oid = s.setrole"
-                " WHERE r.rolname IN ('skyalerts_ingest', 'skyalerts_ro') AND s.setdatabase = 0"
+                " WHERE r.rolname IN ('skyalerts_ingest', 'skyalerts_ro', 'skyalerts_web_admin')"
+                " AND s.setdatabase = 0"
             ).fetchall()
         )
     assert "statement_timeout=60s" in rows["skyalerts_ingest"]
     assert {"statement_timeout=10s", "default_transaction_read_only=on"} <= set(
         rows["skyalerts_ro"]
     )
+    assert rows["skyalerts_web_admin"] == ["statement_timeout=10s"]
 
 
 def test_ingest_cannot_choose_run_ids_or_temp_tables(migrated):

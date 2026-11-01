@@ -10,12 +10,13 @@ DATABASE_URL=<skyalerts_ingest dsn> uv run python -m skyalerts_ingest.ingest --s
 ```
 
 ## Deployment: Vercel project `skyalerts-ingest` (Root Directory `ingest/`)
-- Entrypoint: `skyalerts_ingest.web:app` (WSGI, `[tool.vercel]` in pyproject). The only route is `GET /api/cron/ingest`.
+- Entrypoint: `skyalerts_ingest.web:app` (WSGI, `[tool.vercel]` in pyproject). Routes: `GET /api/cron/ingest` (Vercel Cron) and `POST /api/manual/ingest` (owner-triggered re-run from `/admin`).
 - Cron: `0 13 * * *` (Hobby: once a day, fires within the 13:00 UTC hour). That's after the Chilean night and ALeRCE processing.
 - `maxDuration` is 300 s. The job budgets 240 s and records `partial` if it runs out.
 - Env vars (Production only):
   - `DATABASE_URL`: `skyalerts_ingest` connection string to database `neondb` with `sslmode=require`. The pooled `-pooler` endpoint is fine: the run lease uses a transaction-scoped lock.
   - `CRON_SECRET`: random, at least 16 characters. Vercel sends it as `Authorization: Bearer …`.
+  - `MANUAL_TRIGGER_SECRET`: random, at least 32 characters, separate from `CRON_SECRET`. Sent as `Authorization: Bearer …` to `POST /api/manual/ingest`; also set in the web project (Production env) as the caller's copy so `/admin` never holds `CRON_SECRET`.
   - optional: `INGEST_MAX_PAGES` (20, the cap for sources without their own), `INGEST_PAGE_SIZE` (100), `INGEST_TIME_BUDGET_S` (240), `INGEST_ENRICH_MAX` (40), `ALERCE_MIN_INTERVAL_S` (1.0), `LOG_LEVEL`
 
 ## Behaviour
@@ -30,7 +31,7 @@ DATABASE_URL=<skyalerts_ingest dsn> uv run python -m skyalerts_ingest.ingest --s
 - **Paging:** newest-first, 100 per page. Stops at a short page, once rows are older than the source's catch-up floor, at the page cap, or at the time budget.
 - **Enrichment:** after list paging (unless the list phase hit the time budget), up to `INGEST_ENRICH_MAX` (40) objects touched in the run (excluding `bogus`/`asteroid` and objects where `enriched_lastmjd >= lastmjd`) are enriched in priority order (Tier 1 transients → Tier 2 variable/other → Tier 3 AGN/QSO/Blazar, then `top_probability DESC`, `lastmjd DESC`). Each object fetches detections (keeping up to 200 newest with a slim `raw` whitelist) and probabilities (keeping `ranking <= 3` per classifier/version) within the shared time budget. Enrichment errors or budget exhaustion are logged without demoting the run status.
 - **Safety:** idempotent upserts. A lease row in `ingest_runs`, claimed under a transaction-scoped advisory lock, makes duplicate or overlapping cron calls skip. Runs left `running` for more than 10 min are closed as failed.
-- **Catch-up** (`docs/decisions.md` #24): each complete source keeps a watermark in data time: the newest `lastmjd` it saw, stored in `ingest_runs.coverage` (migration 0005).
+- **Catch-up** (`docs/decisions.md` #28): each complete source keeps a watermark in data time: the newest `lastmjd` it saw, stored in `ingest_runs.coverage` (migration 0005).
   - Floor = watermark − 1 day of overlap. With no watermark yet, floor = newest row − 1.2 days. Either way it is bounded to 7 days.
   - A complete source that hits its page cap before the floor makes the run `partial` and records `gap_mjd` in `errors`. Its window still advances, so the gap is reported once.
   - A budget hit or a failed source doesn't advance that source's window; the next run re-covers it.

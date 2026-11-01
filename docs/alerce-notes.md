@@ -110,7 +110,7 @@ Schema implication: `oid` stored as `text` with a `survey` column; composite key
 
 ## LSST volume probe — 2026-11-01 ~19:35 UTC (local, ~20 requests at ≤1 req/s)
 
-Basis for decision #24.
+Basis for decision #28.
 - **The unfiltered list is far too deep to page.** Newest-first at `page_size=100`:
   - page 1 is at `lastmjd` 61344.3188
   - page 20 is at 61344.22
