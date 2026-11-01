@@ -37,6 +37,7 @@ npm run build
 | `ADMIN_GITHUB_IDS` | Vercel (Production) | `16056018`. Numeric GitHub user ids, comma-separated; never usernames |
 | `MANUAL_TRIGGER_URL` | Vercel (Production) | `https://<skyalerts-ingest domain>/api/manual/ingest` |
 | `MANUAL_TRIGGER_SECRET` | Vercel (Production, both projects) | Random, at least 32 characters; the same value in `skyalerts-ingest` |
+| `MANUAL_TRIGGER_BYPASS` | Vercel (Production), optional | The ingest project's "Protection Bypass for Automation" secret. Needed while `skyalerts-ingest` keeps Vercel Authentication on its `*.vercel.app` URLs; sent as `x-vercel-protection-bypass` |
 
 `DATABASE_URL` is read-only with a 10 s statement timeout (`db/migrations/0002`). Admin is disabled (fail closed) unless the GitHub, session and allowlist variables are all set. Preview deployments should not get the admin variables.
 

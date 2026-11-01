@@ -30,7 +30,10 @@ export async function runIngestNow(form: FormData) {
     try {
       const res = await fetch(trigger.url, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${trigger.secret}` },
+        headers: {
+          Authorization: `Bearer ${trigger.secret}`,
+          ...(trigger.bypass ? { 'x-vercel-protection-bypass': trigger.bypass } : {}),
+        },
         signal: AbortSignal.timeout(TRIGGER_TIMEOUT_MS),
         cache: 'no-store',
       })

@@ -36,18 +36,21 @@ export function adminConfig(env: Env = process.env): AdminConfig | null {
 export interface TriggerConfig {
   url: string
   secret: string
+  /** Vercel "Protection Bypass for Automation" secret, when the ingest project is behind Vercel Auth. */
+  bypass: string | null
 }
 
 /** Where /admin sends manual ingest re-runs (the ingest project's /api/manual/ingest). */
 export function triggerConfig(env: Env = process.env): TriggerConfig | null {
   const url = env.MANUAL_TRIGGER_URL?.trim()
   const secret = env.MANUAL_TRIGGER_SECRET ?? ''
-  if (!url || secret.length < 32) return null
+  const bypass = env.MANUAL_TRIGGER_BYPASS?.trim() || null
+  if (!url || secret.length < 32 || (bypass !== null && bypass.length < 16)) return null
   try {
     const u = new URL(url)
     if (u.protocol !== 'https:' && u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return null
   } catch {
     return null
   }
-  return { url, secret }
+  return { url, secret, bypass }
 }

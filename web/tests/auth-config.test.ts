@@ -36,8 +36,14 @@ describe('adminConfig', () => {
 describe('triggerConfig', () => {
   const t = { MANUAL_TRIGGER_URL: 'https://skyalerts-ingest.vercel.app/api/manual/ingest', MANUAL_TRIGGER_SECRET: 's'.repeat(32) }
 
+  it('carries an optional Vercel protection-bypass secret', () => {
+    expect(triggerConfig({ ...t, MANUAL_TRIGGER_BYPASS: 'b'.repeat(32) })?.bypass).toBe('b'.repeat(32))
+    expect(triggerConfig({ ...t, MANUAL_TRIGGER_BYPASS: '  ' })?.bypass).toBeNull()
+    expect(triggerConfig({ ...t, MANUAL_TRIGGER_BYPASS: 'short' })).toBeNull()
+  })
+
   it('requires https (localhost excepted) and a long secret', () => {
-    expect(triggerConfig(t)).toEqual({ url: t.MANUAL_TRIGGER_URL, secret: t.MANUAL_TRIGGER_SECRET })
+    expect(triggerConfig(t)).toEqual({ url: t.MANUAL_TRIGGER_URL, secret: t.MANUAL_TRIGGER_SECRET, bypass: null })
     expect(triggerConfig({ ...t, MANUAL_TRIGGER_URL: 'http://example.com/x' })).toBeNull()
     expect(triggerConfig({ ...t, MANUAL_TRIGGER_URL: 'http://localhost:8000/api/manual/ingest' })).not.toBeNull()
     expect(triggerConfig({ ...t, MANUAL_TRIGGER_URL: 'not a url' })).toBeNull()

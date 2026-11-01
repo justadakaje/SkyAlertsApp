@@ -17,6 +17,7 @@ export default async function SettingsPage() {
     ['Admin database role', Boolean(process.env.ADMIN_DATABASE_URL), 'ADMIN_DATABASE_URL (skyalerts_web_admin)'],
     ['Public database role', Boolean(process.env.DATABASE_URL), 'DATABASE_URL (skyalerts_ro)'],
     ['Manual ingest trigger', trigger !== null, 'MANUAL_TRIGGER_URL / MANUAL_TRIGGER_SECRET'],
+    ['Ingest protection bypass', Boolean(trigger?.bypass), 'MANUAL_TRIGGER_BYPASS (needed while ingest URLs are behind Vercel Auth)'],
   ]
   return (
     <>
