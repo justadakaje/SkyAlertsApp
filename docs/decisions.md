@@ -33,6 +33,8 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 
     Reversible: the ingest entrypoint is a plain function, so moving it to Actions or Pro later is config-only.
 
+14. **Neon project `skyalerts` created through the Neon connector (OWNER-approved 2026-11-01):** project `billowing-haze-89704982`, AWS us-east-1, Postgres 17, free tier, database `skyalerts`, owner role `skyalerts_admin`. Roles created through the Neon API land in `neon_superuser` (CREATEDB, CREATEROLE, BYPASSRLS), and that membership can't be revoked. So the app roles `skyalerts_ingest` and `skyalerts_ro` are created by SQL in migration 0002 as plain logins. The two API-created roles were deleted with owner approval. Postgres-level defense in depth: per-role `statement_timeout`, and read-only transactions by default for `skyalerts_ro`.
+
 ## Pending / OWNER
 
 - ~~Ingest scheduler~~ → decided, see #13.
