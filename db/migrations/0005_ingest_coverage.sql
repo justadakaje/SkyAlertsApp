@@ -1,4 +1,4 @@
--- 0004_ingest_coverage: per-source paging coverage for each run. The ingest job
+-- 0005_ingest_coverage: per-source paging coverage for each run. The ingest job
 -- reads each source's catch-up watermark (newest lastmjd seen) from here instead of
 -- the wall-clock start of the last successful run. See docs/decisions.md #24.
 

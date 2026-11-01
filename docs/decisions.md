@@ -67,7 +67,7 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
       - ZTF `stamp_classifier` and `lc_classifier` unfiltered: sample, 1 page each. That's what they effectively got before.
       - ZTF stamp SN and lc SNIa/SNIbc/SNII/SLSN/CV/Nova: complete, cap 10 each.
     - **Rules:**
-      - Each source's watermark is the newest `lastmjd` it saw in the last finished `success`/`partial` run that advanced it. It's stored per run in `ingest_runs.coverage` (migration 0004).
+      - Each source's watermark is the newest `lastmjd` it saw in the last finished `success`/`partial` run that advanced it. It's stored per run in `ingest_runs.coverage` (migration 0005).
       - Floor = watermark − 1 d overlap, which re-covers the previous nightly batch for late arrivals. With no watermark yet, floor = newest row − 1.2 d (about one night). Either way the floor is bounded to 7 d.
       - A **complete** source must page below its floor. If it hits its cap first, the run is `partial`, and the error records `gap_mjd: [floor, oldest reached]`.
       - A **sample** source is truncated by design and never affects status.
