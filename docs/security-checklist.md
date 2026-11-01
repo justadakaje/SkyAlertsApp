@@ -10,7 +10,7 @@ Derived from SPEC §Security. A phase ships to production only when every applic
 - [ ] `pip-audit` (+ `npm audit --audit-level=high` from Phase 2) and dependency review (fail ≥ high) block merges
 - [ ] Branch protection on `main`: PR required, `ci-ok` + CodeQL required, linear history, no force push, no deletion, conversation resolution
 - [ ] Actions pinned to commit SHAs; default `GITHUB_TOKEN` read-only; `persist-credentials: false`
-- [ ] Lockfiles committed (`ingest/uv.lock`, later `web/package-lock.json`)
+- [ ] Lockfiles committed (`ingest/uv.lock`, `db/uv.lock`, `web/package-lock.json`)
 
 ## Data & secrets (Phase 1+)
 - [ ] All secrets in Vercel/GitHub encrypted env vars, separate preview vs production

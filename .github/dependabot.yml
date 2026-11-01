@@ -31,4 +31,17 @@ updates:
       actions:
         patterns: ["*"]
 
-  # npm (/web) is added in Phase 2 when web/package-lock.json exists.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, lane:frontend]
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # TypeScript 7 is the native-compiler rewrite; adopt it deliberately, not via a bump.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
