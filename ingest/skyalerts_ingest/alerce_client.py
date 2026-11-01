@@ -28,7 +28,7 @@ SURVEYS: tuple[Survey, ...] = ("ztf", "lsst")
 
 DEFAULT_ZTF_URL = "https://api.alerce.online"
 DEFAULT_LSST_URL = "https://api-lsst.alerce.online"
-USER_AGENT = f"skyalerts/{__version__} (+https://github.com/justadakaje/skyalerts)"
+USER_AGENT = f"skyalerts/{__version__} (+https://github.com/justadakaje/SkyAlertsApp)"
 
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 MAX_PAGE_SIZE = 100  # self-imposed; ALeRCE publishes no maximum
