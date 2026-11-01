@@ -99,6 +99,13 @@ Schema implication: `oid` stored as `text` with a `survey` column; composite key
 - **Latency:** LSST requests took 0.3–0.9 s. No 429s at ≤1 req/s.
 - Artifacts can't be downloaded from the agent workspace (the GitHub blob storage host isn't on its allowlist). Findings come from job logs. You can download the raw samples from the run page.
 
+### ZTF (re-run after the redirect fix: run 41282173932)
+- Works through the trailing-slash routes.
+- **Without a `classifier` filter, `class`/`classifier`/`probability` come back null on every list row.** Ingest must query per classifier, or fetch `/probabilities` per object.
+- Probability classifiers seen: `stamp_classifier` (`stamp_classifier_1.0.4`) and `stamp_classifier_2025_beta` (`2.1.1_beta`). `lc_classifier` didn't appear in this sample (all 25 objects had a single detection).
+- `ndethist` really is a **string**. Coerce it.
+- **Freshness:** newest ZTF last detection was **65.5 h old** (2026-10-29). ZTF cadence is slowing or patchy, so it can't be the "fresh" signal. Treat Rubin as primary and ZTF as secondary.
+
 ## Open items to verify on first live run
 1. ~~LSST `list_objects` response field names and pagination keys.~~ Done (see above).
 2. Max accepted `page_size` on both APIs.
