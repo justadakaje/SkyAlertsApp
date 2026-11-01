@@ -1,0 +1,34 @@
+[
+  {
+    "classifier_name": "lc_classifier",
+    "classifier_version": "hierarchical_random_forest_1.0.0",
+    "classes": [
+      "SNIa",
+      "SNIbc",
+      "SNII",
+      "SLSN",
+      "AGN",
+      "QSO",
+      "Blazar",
+      "CV/Nova",
+      "YSO",
+      "LPV",
+      "E",
+      "DSCT",
+      "RRL",
+      "CEP",
+      "Periodic-Other"
+    ]
+  },
+  {
+    "classifier_name": "stamp_classifier",
+    "classifier_version": "stamp_classifier_1.0.4",
+    "classes": [
+      "SN",
+      "AGN",
+      "VS",
+      "asteroid",
+      "bogus"
+    ]
+  }
+]

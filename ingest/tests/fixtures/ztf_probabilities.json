@@ -1,0 +1,23 @@
+[
+  {
+    "classifier_name": "lc_classifier",
+    "classifier_version": "hierarchical_random_forest_1.0.0",
+    "class_name": "SNIa",
+    "probability": 0.81,
+    "ranking": 1
+  },
+  {
+    "classifier_name": "lc_classifier",
+    "classifier_version": "hierarchical_random_forest_1.0.0",
+    "class_name": "SNII",
+    "probability": 0.11,
+    "ranking": 2
+  },
+  {
+    "classifier_name": "stamp_classifier",
+    "classifier_version": "stamp_classifier_1.0.4",
+    "class_name": "SN",
+    "probability": 0.9,
+    "ranking": 1
+  }
+]
