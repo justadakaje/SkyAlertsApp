@@ -10,12 +10,13 @@ DATABASE_URL=<skyalerts_ingest dsn> uv run python -m skyalerts_ingest.ingest --s
 ```
 
 ## Deployment: Vercel project `skyalerts-ingest` (Root Directory `ingest/`)
-- Entrypoint: `skyalerts_ingest.web:app` (WSGI, `[tool.vercel]` in pyproject). The only route is `GET /api/cron/ingest`.
+- Entrypoint: `skyalerts_ingest.web:app` (WSGI, `[tool.vercel]` in pyproject). Routes: `GET /api/cron/ingest` (Vercel Cron) and `POST /api/manual/ingest` (owner-triggered re-run from `/admin`).
 - Cron: `0 13 * * *` (Hobby: once a day, fires within the 13:00 UTC hour). That's after the Chilean night and ALeRCE processing.
 - `maxDuration` is 300 s. The job budgets 240 s and records `partial` if it runs out.
 - Env vars (Production only):
   - `DATABASE_URL`: `skyalerts_ingest` connection string to database `neondb` with `sslmode=require`. The pooled `-pooler` endpoint is fine: the run lease uses a transaction-scoped lock.
   - `CRON_SECRET`: random, at least 16 characters. Vercel sends it as `Authorization: Bearer …`.
+  - `MANUAL_TRIGGER_SECRET`: random, at least 32 characters, separate from `CRON_SECRET`. Sent as `Authorization: Bearer …` to `POST /api/manual/ingest`; also set in the web project (Production env) as the caller's copy so `/admin` never holds `CRON_SECRET`.
   - optional: `INGEST_MAX_PAGES` (20), `INGEST_PAGE_SIZE` (100), `INGEST_TIME_BUDGET_S` (240), `INGEST_ENRICH_MAX` (40), `ALERCE_MIN_INTERVAL_S` (1.0), `LOG_LEVEL`
 
 ## Behaviour

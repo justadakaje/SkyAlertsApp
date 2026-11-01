@@ -15,5 +15,6 @@ Schema migrations for the Neon Postgres database: Vercel-managed Neon project `n
 | `neondb_owner` | migrations | owner (created by the Vercel Neon integration) |
 | `skyalerts_ingest` | ingest job (Vercel `skyalerts-ingest`) | SELECT/INSERT/UPDATE on data tables + `ingest_runs`; no DELETE; 60 s statement timeout |
 | `skyalerts_ro` | public website | SELECT only; read-only transactions; 10 s statement timeout |
+| `skyalerts_web_admin` | `/admin` routes on the website | SELECT on data tables + `ingest_runs`; append-only (SELECT + column-scoped INSERT) on `audit_log`; 10 s statement timeout |
 
-App roles are created by SQL (`0002`), **not** the Neon console/API. Neon makes console- and API-created roles members of `neon_superuser`. Passwords are set out-of-band (prefer `\password <role>` in psql, which hashes client-side) and stored only in encrypted env vars. `default_transaction_read_only` and timeouts are guard rails. The grants are the actual control.
+App roles are created by SQL (`0002`, `0004`), **not** the Neon console/API. Neon makes console- and API-created roles members of `neon_superuser`. Passwords are set out-of-band (prefer `\password <role>` in psql, which hashes client-side) and stored only in encrypted env vars. `default_transaction_read_only` and timeouts are guard rails. The grants are the actual control.
