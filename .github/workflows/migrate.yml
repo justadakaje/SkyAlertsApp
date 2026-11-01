@@ -21,6 +21,8 @@ concurrency:
 
 jobs:
   migrate:
+    # Only reviewed SQL from main may reach production.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production

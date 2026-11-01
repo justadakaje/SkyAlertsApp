@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import os
 import re
@@ -19,9 +20,15 @@ import sys
 from pathlib import Path
 
 import psycopg
+import psycopg.conninfo
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 NAME_RE = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
+# Explicit transaction control would break the one-transaction-per-file guarantee.
+TXN_RE = re.compile(
+    r"^\s*(BEGIN|COMMIT|END|ROLLBACK|START\s+TRANSACTION|SAVEPOINT|RELEASE)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 LOCK_KEY = 0x5C7A1E27  # arbitrary, stable
 
 BOOTSTRAP = """
@@ -37,29 +44,52 @@ class MigrationError(Exception):
     pass
 
 
-def discover(directory: Path = MIGRATIONS_DIR) -> list[tuple[str, Path, str]]:
+def discover(directory: Path = MIGRATIONS_DIR) -> list[tuple[str, str, str]]:
+    """Return [(version, sql, sha256)]. The SQL that is hashed is the SQL that runs."""
     found = []
     for path in sorted(directory.glob("*.sql")):
         m = NAME_RE.match(path.name)
         if not m:
             raise MigrationError(f"Bad migration filename: {path.name} (want NNNN_snake_case.sql)")
         sql = path.read_text()
-        found.append((path.stem, path, hashlib.sha256(sql.encode()).hexdigest()))
+        if TXN_RE.search(_strip_dollar_quoted(sql)):
+            raise MigrationError(
+                f"{path.name} contains explicit transaction control; the runner wraps each file"
+            )
+        found.append((path.stem, sql, hashlib.sha256(sql.encode()).hexdigest()))
     versions = [v[:4] for v, _, _ in found]
     if len(set(versions)) != len(versions):
         raise MigrationError(f"Duplicate migration numbers: {versions}")
     return found
 
 
+def _strip_dollar_quoted(sql: str) -> str:
+    """Drop $$...$$ bodies (DO blocks/functions) so BEGIN/END inside them aren't flagged."""
+    return re.sub(r"\$(\w*)\$.*?\$\1\$", "", sql, flags=re.DOTALL)
+
+
+def _is_pooled(dsn: str) -> bool:
+    return "-pooler" in (psycopg.conninfo.conninfo_to_dict(dsn).get("host") or "")
+
+
 def migrate(dsn: str, *, dry_run: bool = False, directory: Path = MIGRATIONS_DIR) -> list[str]:
     migrations = discover(directory)
+    if _is_pooled(dsn):
+        # Session advisory locks don't survive PgBouncer transaction pooling.
+        raise MigrationError("Use the direct (non -pooler) Neon endpoint for migrations")
     applied_now: list[str] = []
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute("SELECT pg_advisory_lock(%s)", (LOCK_KEY,))
         try:
-            conn.execute(BOOTSTRAP)
-            done = dict(conn.execute("SELECT version, checksum FROM schema_migrations").fetchall())
-            for version, path, checksum in migrations:
+            exists = conn.execute("SELECT to_regclass('schema_migrations')").fetchone()[0]
+            if exists is None and not dry_run:
+                conn.execute(BOOTSTRAP)
+            done = (
+                dict(conn.execute("SELECT version, checksum FROM schema_migrations").fetchall())
+                if exists is not None or not dry_run
+                else {}
+            )
+            for version, sql, checksum in migrations:
                 if version in done:
                     if done[version] != checksum:
                         raise MigrationError(
@@ -70,14 +100,16 @@ def migrate(dsn: str, *, dry_run: bool = False, directory: Path = MIGRATIONS_DIR
                     applied_now.append(version)
                     continue
                 with conn.transaction():
-                    conn.execute(path.read_text())
+                    conn.execute(sql)
                     conn.execute(
                         "INSERT INTO schema_migrations (version, checksum) VALUES (%s, %s)",
                         (version, checksum),
                     )
                 applied_now.append(version)
         finally:
-            conn.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
+            # If the connection is gone the lock died with the session; keep the original error.
+            with contextlib.suppress(psycopg.Error):
+                conn.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
     return applied_now
 
 

@@ -54,6 +54,7 @@ def test_dry_run_changes_nothing(db_url):
     assert migrate.migrate(db_url, dry_run=True) == ["0001_init", "0002_roles_and_grants"]
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('objects')").fetchone()[0] is None
+        assert c.execute("SELECT to_regclass('schema_migrations')").fetchone()[0] is None
 
 
 def test_checksum_mismatch_is_refused(db_url, tmp_path):
@@ -159,3 +160,56 @@ def test_roles_are_not_privileged(migrated):
 def test_constraints(migrated, sql, err):
     with psycopg.connect(migrated, autocommit=True) as c, pytest.raises(err):
         c.execute(sql)
+
+
+def test_explicit_transaction_control_rejected(tmp_path):
+    (tmp_path / "0001_x.sql").write_text(
+        "CREATE TABLE a (x int);\nCOMMIT;\nCREATE TABLE b (x int);\n"
+    )
+    with pytest.raises(migrate.MigrationError, match="transaction control"):
+        migrate.discover(tmp_path)
+
+
+def test_do_block_begin_end_allowed(tmp_path):
+    (tmp_path / "0001_x.sql").write_text("DO $$\nBEGIN\n  PERFORM 1;\nEND\n$$;\n")
+    assert [v for v, _, _ in migrate.discover(tmp_path)] == ["0001_x"]
+
+
+def test_pooled_endpoint_refused():
+    dsn = "postgresql://u:p@ep-x-pooler.us-east-1.aws.neon.tech/skyalerts"
+    with pytest.raises(migrate.MigrationError, match="pooler"):
+        migrate.migrate(dsn)
+
+
+def test_role_level_settings(migrated):
+    with psycopg.connect(migrated) as c:
+        rows = dict(
+            c.execute(
+                "SELECT r.rolname, s.setconfig FROM pg_db_role_setting s"
+                " JOIN pg_roles r ON r.oid = s.setrole"
+                " WHERE r.rolname IN ('skyalerts_ingest', 'skyalerts_ro') AND s.setdatabase = 0"
+            ).fetchall()
+        )
+    assert "statement_timeout=60s" in rows["skyalerts_ingest"]
+    assert {"statement_timeout=10s", "default_transaction_read_only=on"} <= set(
+        rows["skyalerts_ro"]
+    )
+
+
+def test_ingest_cannot_choose_run_ids_or_temp_tables(migrated):
+    with _as(migrated, "skyalerts_ingest") as c:
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute(
+                "INSERT INTO ingest_runs (id, trigger, surveys) OVERRIDING SYSTEM VALUE"
+                " VALUES (999, 'cli', '{lsst}')"
+            )
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("UPDATE ingest_runs SET started_at = now()")
+        with pytest.raises(errors.InsufficientPrivilege):
+            c.execute("CREATE TEMP TABLE t (x int)")
+
+
+def test_dry_run_on_fresh_db_creates_nothing(db_url):
+    migrate.migrate(db_url, dry_run=True)
+    with psycopg.connect(db_url) as c:
+        assert c.execute("SELECT to_regclass('schema_migrations')").fetchone()[0] is None
