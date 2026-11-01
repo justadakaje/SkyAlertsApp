@@ -19,7 +19,21 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 11. **Digest sends from `sky.henseler.app`, not a subdomain of henseler.email (OWNER decision, 2026-11-01).** This keeps Proton Mail's henseler.email zone completely untouched. Resend domain is `sky.henseler.app`, region `us-east-1` (permanent), sending only, open/click tracking off. DNS lives at Porkbun: `resend._domainkey.sky` TXT (DKIM), `send.sky` MX + TXT (SPF/bounce), `rsend.sky` CNAME, `_dmarc.sky` TXT `v=DMARC1; p=none;`. Nothing sits at the `sky` apex, so Phase 2 can still add `sky` CNAME → Vercel. Note: a `*.henseler.app` wildcard CNAME → pixie.porkbun.com exists. Because `send.sky` now exists, `sky.henseler.app` is an empty non-terminal and no longer matches that wildcard. It won't resolve until Phase 2 adds its CNAME. Tighten DMARC to `p=quarantine` after 2–4 weeks of clean reports.
 12. **Repo settings are applied by the owner in the UI.** The agent's GitHub proxy blocks settings writes (security & analysis, branch protection/rulesets). The agent opens PRs and reads CI. The owner toggles settings per `docs/security-checklist.md`.
 
+13. **Ingest runs as a Vercel Python function triggered by Vercel Cron (OWNER decision 2026-11-01, overriding the GitHub Actions recommendation).** Constraints on the Hobby plan (confirmed in Vercel docs 2026-11-01):
+    - **Cron runs at most once a day**, with ±59 min timing. More frequent schedules fail at deploy. Pro ($20/mo) allows per-minute.
+    - **Functions get 300 s max duration** and 2 GB memory.
+
+    Design consequences:
+    - **Daily schedule.** Acceptable: the live run showed Rubin data arrives ~23 h after observation as a nightly batch.
+    - **Under ~150 requests per run.** Use LSST list rows (they already carry class and probability) and ZTF per-classifier list queries. No per-object probability fan-out in the cron path.
+    - **Separate Vercel project `skyalerts-ingest`** (root `ingest/`). The write-role secret never sits in the public web project's env.
+    - **Migrations run from a GitHub Actions workflow** behind a `production` environment that needs owner approval. The admin connection string stays a GitHub secret and never goes to Vercel.
+    - **The Neon integration must not auto-inject its owner `DATABASE_URL` into any project.** Each project gets only its own role's connection string.
+    - **Manual re-run from /admin (Phase 2)** covers missed or late crons.
+
+    Reversible: the ingest entrypoint is a plain function, so moving it to Actions or Pro later is config-only.
+
 ## Pending / OWNER
 
-- **Ingest scheduler (SPEC asks for a recommendation):** leaning **GitHub Actions cron** over a Vercel Python function — no 60–300 s function duration ceiling, free minutes on a private repo are sufficient for a few short runs/day, logs retained per run, and it keeps the ALeRCE-facing write role off the Vercel runtime. Trade-off: Actions cron can be delayed under load (fine at "every few hours"). Final call at Phase 1 kickoff.
+- ~~Ingest scheduler~~ → decided, see #13.
 - **GitHub user ID for /admin allowlist:** `16056018` (`justadakaje`). Confirm.
