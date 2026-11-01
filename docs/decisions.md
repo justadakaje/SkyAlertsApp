@@ -64,15 +64,49 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 26. **Manual re-run: the web app POSTs to the ingest project's `/api/manual/ingest`** with `MANUAL_TRIGGER_SECRET`, which is distinct from `CRON_SECRET` so the web project never holds the cron secret. The audit row is written *before* the call, and if that fails nothing is triggered. The call runs in `after()` within a 300 s `maxDuration`. The ingest lease prevents overlapping runs, and the button is disabled while a run is active. The ingest project keeps Vercel Authentication on its `*.vercel.app` URLs, so the call also sends that project's "Protection Bypass for Automation" secret (`MANUAL_TRIGGER_BYPASS`) as `x-vercel-protection-bypass`. The ingest endpoint stays doubly guarded, and nothing about it becomes public.
 27. **Sign-in monitoring:** each sign-in writes a structured log line (`event: admin_sign_in`) for a Vercel log alert, and denied sign-ins are audited with the GitHub id that tried. The digest and settings pages are placeholders until Phase 3, when there is something to configure.
 
-## 2026-11-01 — Phase 2 (public dashboard)
+## 2026-11-01 — Phase 2 (ingest catch-up window)
 
-19. **Web stack: Next.js 16 (App Router) + TypeScript 6, plain CSS, `pg`, no chart library.** Four runtime dependencies: `next`, `react`, `react-dom`, `pg`. Plain CSS instead of Tailwind keeps the dependency list short. `pg` instead of `@neondatabase/serverless` means the same driver runs locally, in CI and on Vercel (Neon's pooled endpoint). Charts are server-rendered SVG, which needs no client JavaScript and so keeps the CSP strict. TypeScript is pinned to 6.x: 7.0 is the native-compiler rewrite released days ago, and Dependabot ignores its major version until we adopt it on purpose. Reversible.
-20. **Nonce-based CSP via `proxy.ts`, so every page renders per request; database reads are cached for 10 minutes** (`unstable_cache`, keyed by a 10-minute time bucket). Ingest runs once a day, so cached reads lose nothing and keep the free-tier Neon compute asleep between visits. Static headers (HSTS 2 years with subdomains, nosniff, frame DENY, Referrer-Policy, Permissions-Policy, COOP) live in `next.config.ts`. Reversible: SRI-based CSP (experimental in Next 16) would allow static pages later.
-21. **Light curves:** ZTF is plotted in magnitudes, using ALeRCE's corrected apparent magnitude (`magpsf_corr`) when `corrected` is true. Uncorrected negative differences (`isdiffpos = -1`) have no meaningful magnitude and are left off, with a count in the caption. LSST is plotted as difference flux in µJy, where negative values are real measurements. g/r/i overlay on one chart in a palette checked for colour-vision deficiency; any other band set switches to one panel per band, because six hues can't stay distinguishable.
-22. **Artifacts (`bogus`, roughly a third of LSST rows) are hidden by default** behind a "Show artifacts" toggle. "Most notable" ordering uses the same tiers as ingest enrichment (#18): explosions and outbursts first, active galaxies last.
-23. **ALeRCE explorer link for LSST objects is `alerce.online/object/?oid=<id>&survey=lsst`.** It is the form reported working on the Rubin community forum; ALeRCE hasn't documented one. Re-check if links break.
+28. **2026-11-01 · The catch-up window is per source and in data time. Both full alert streams are samples, and tier-1 transient classes are paged completely ·** This fixes the window that #17 left stuck: production run 1 and both local runs ended `partial` with "page cap hit: ['lsst:default']".
+    - **Measured volume** (2026-11-01, ~25 read-only probes, see `docs/alerce-notes.md`):
+      - The unfiltered LSST list holds 25,000 rows within the newest 5 h of one night. A full night is roughly **400–600 pages** of 100, and about half the rows repeat an object once per classifier version.
+      - The unfiltered ZTF lists hold 100 rows per ~2 min of data.
+      - At ≤1 req/s inside the 240 s budget, with ~90 s kept for enrichment (#18), a run can page about 140 pages. So **no page cap or floor makes either unfiltered stream complete**.
+      - Filtered by classifier + class, the tier-1 transient classes are small. LSST SN (`stamp_classifier_rubin_beta_20260421`) is 4–12 pages a night. Each ZTF class (stamp SN; lc SNIa/SNIbc/SNII/SLSN/CV/Nova) is 1–2 pages a day.
+    - **The old floor also hid a silent gap.** ZTF's newest data is ~3 days old, so `now − 2 d` sat above every ZTF row. Each ZTF source stopped after one page and reported `success` while taking only 100 rows a day. More generally, whenever ALeRCE stalled and then caught up, a wall-clock floor skipped the backlog without reporting it.
+    - **Options weighed:**
+      1. *Data-time floor, shorter lookback.* Adopted. It closes that blind spot. On its own it doesn't help, because one new LSST night is still ~500 pages.
+      2. *Bigger or per-source cap.* Adopted as per-source caps. Raising the unfiltered LSST cap to 120 pages would still cover only ~5 h of one night.
+      3. *Gap-aware status.* Adopted as the status rule: hitting the cap matters only if the oldest row reached is still newer than the floor.
+
+      1 and 3 are the same mechanism. **Recommendation: that mechanism, plus per-source caps, plus splitting each stream into a sample and complete tier-1 class sources.** Tier-1 matches `TIER1_CLASSES`, which enrichment already prioritises.
+    - **Sources:**
+      - `lsst:default`: sample, 20 pages.
+      - LSST SN: complete, cap 40.
+      - ZTF `stamp_classifier` and `lc_classifier` unfiltered: sample, 1 page each. That's what they effectively got before.
+      - ZTF stamp SN and lc SNIa/SNIbc/SNII/SLSN/CV/Nova: complete, cap 10 each.
+    - **Rules:**
+      - Each source's watermark is the newest `lastmjd` it saw in the last finished `success`/`partial` run that advanced it. It's stored per run in `ingest_runs.coverage` (migration 0005).
+      - Floor = watermark − 1 d overlap, which re-covers the previous nightly batch for late arrivals. With no watermark yet, floor = newest row − 1.2 d (about one night). Either way the floor is bounded to 7 d.
+      - A **complete** source must page below its floor. If it hits its cap first, the run is `partial`, and the error records `gap_mjd: [floor, oldest reached]`.
+      - A **sample** source is truncated by design and never affects status.
+    - **Change to #17:**
+      - A source's window advances when *its own* coverage reached the floor, even if another source failed.
+      - It also advances after a recorded page-cap gap. Holding it back is what wedged production: each later run needs even more pages, so it can never catch up.
+      - It does not advance after a budget hit, a source error, a crash, or an abandoned lease. Those are transient, so the next run re-covers the range.
+    - **Guards:**
+      - A row dated more than 1 h past the wall clock can't move a watermark. One bad `lastmjd` would otherwise lift the floor above all real data.
+      - LSST SN is `partial` if its newest row trails the survey's newest by more than 2 d. A renamed (dated) classifier would otherwise leave a frozen list that still "completes" daily. ZTF classifier names aren't dated, and the sparse lc classes would trip the check falsely.
+    - **Verified live** (2026-11-01, branch code against real ALeRCE, writing into a throwaway local Postgres): two consecutive runs ended **`success`**: 122 requests in 137 s, then 113 requests in 125 s, each with 40 enrichments. Run 2's floors came from run 1's watermarks (LSST SN 8 → 5 pages).
+    - **Budget, a day with a new night:** ~22 sample + 8–25 LSST SN + ~8–15 ZTF class requests, plus ≤80 for enrichment. That's ≤140 requests, about 150–190 s. The 240 s budget still cuts a bad day: the list phase becomes `partial`, and an enrichment cut leaves status unchanged (#18).
+    - **Trade-offs:**
+      - Non-transient classes (AGN, VS, bogus, asteroid, and ZTF periodic types) are only a newest-first sample. That was already true in practice, but it was never stated.
+      - Objects labelled SN only by the older LSST `stamp_classifier_rubin_beta` fall outside the complete source.
+      - Recorded gaps aren't backfilled automatically. That needs `lastmjd` range paging (follow-up).
+      - Offset paging over large `lastmjd` tie groups can still reorder rows between pages. A Rubin visit puts hundreds of rows on one timestamp. This risk predates this change.
+    - **Reversible:** sources, caps and overlap are constants in `ingest/skyalerts_ingest/ingest.py`, and the `coverage` column is additive. **OWNER:** sign off on complete coverage meaning tier-1 transient classes.
 
 ## Pending / OWNER
 
 - ~~Ingest scheduler~~ → decided, see #13.
 - ~~GitHub user ID for /admin allowlist~~ → `16056018` (`justadakaje`), confirmed by OWNER 2026-11-01.
+- **Complete coverage = tier-1 transient classes; the rest is a newest-first sample** (#28). Confirm, or name more classes (each costs pages per night).
