@@ -8,7 +8,7 @@ The public Sky Alerts site (Next.js 16, App Router), served at **https://sky.hen
 | `/objects/[survey]/[oid]` | One object: class and plain-English blurb, key facts, light curve, classifier probabilities, sky position, ALeRCE link |
 | `/stats` | Totals, new objects per day (stacked by class group), per-class counts by week |
 
-`/admin` (GitHub sign-in, owner only) comes in a follow-up PR.
+| `/admin` | Owner only (GitHub sign-in): ingest health, runs and their errors, manual re-run, audit log, config status. Digest preview/send arrives with Phase 3 |
 
 ## Run locally
 
@@ -31,11 +31,19 @@ npm run build
 | Env var | Where | Value |
 |---|---|---|
 | `DATABASE_URL` | Vercel (Production; Preview gets its own) | `skyalerts_ro` connection string, Neon **pooled** endpoint, `sslmode=require` |
+| `ADMIN_DATABASE_URL` | Vercel (Production) | `skyalerts_web_admin` connection string (`db/migrations/0004`) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Vercel (Production) | GitHub OAuth App. Callback URL `https://sky.henseler.app/api/auth/github/callback`; local dev needs its own OAuth App with a `http://localhost:3000/...` callback |
+| `ADMIN_SESSION_SECRET` | Vercel (Production) | Random, at least 32 characters (`openssl rand -base64 48`). Rotating it signs everyone out |
+| `ADMIN_GITHUB_IDS` | Vercel (Production) | `16056018`. Numeric GitHub user ids, comma-separated; never usernames |
+| `MANUAL_TRIGGER_URL` | Vercel (Production) | `https://<skyalerts-ingest domain>/api/manual/ingest` |
+| `MANUAL_TRIGGER_SECRET` | Vercel (Production, both projects) | Random, at least 32 characters; the same value in `skyalerts-ingest` |
+| `MANUAL_TRIGGER_BYPASS` | Vercel (Production), optional | The ingest project's "Protection Bypass for Automation" secret. Needed while `skyalerts-ingest` keeps Vercel Authentication on its `*.vercel.app` URLs; sent as `x-vercel-protection-bypass` |
 
-Nothing else is secret. The role is read-only with a 10 s statement timeout (`db/migrations/0002`).
+`DATABASE_URL` is read-only with a 10 s statement timeout (`db/migrations/0002`). Admin is disabled (fail closed) unless the GitHub, session and allowlist variables are all set. Preview deployments should not get the admin variables.
 
 ## Design notes
 
 - **Security:** per-request nonce CSP in `proxy.ts`; static headers in `next.config.ts`; every SQL value is a bind parameter (`lib/queries.ts`); survey/oid/class inputs are allowlisted or pattern-checked (`lib/filters.ts`) before they reach the database.
 - **Caching:** every page renders per request (the nonce requires it), but query results are cached for 10 minutes (`lib/data.ts`).
+- **Admin:** signed `__Host-` session cookie, CSRF token on every form, allowlist re-checked per request, append-only audit log. See `docs/decisions.md` #24–27.
 - **Charts:** server-rendered SVG with native hover titles and a data table under each chart. Colours come from a palette checked for colour-vision deficiency. See `docs/decisions.md` #19–23.

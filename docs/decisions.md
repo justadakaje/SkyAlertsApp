@@ -49,6 +49,29 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 22. **Artifacts (`bogus`, roughly a third of LSST rows) are hidden by default** behind a "Show artifacts" toggle. "Most notable" ordering uses the same tiers as ingest enrichment (#18): explosions and outbursts first, active galaxies last.
 23. **ALeRCE explorer link for LSST objects is `alerce.online/object/?oid=<id>&survey=lsst`.** It is the form reported working on the Rubin community forum; ALeRCE hasn't documented one. Re-check if links break.
 
+## 2026-11-01 — Phase 2 (admin)
+
+24. **Admin sign-in is a small GitHub OAuth flow written in-house, not Auth.js.** We have one user and one provider, and the hand-written version is about 150 audited lines with no new dependencies. Details:
+    - **OAuth:** web application flow requesting no scopes. The access token is used once to read the numeric user id, then discarded.
+    - **Session:** stateless HMAC-SHA256-signed cookie `__Host-skyalerts_admin` (HttpOnly, Secure, SameSite=Lax, 8 h, Web Crypto).
+    - **Allowlist:** numeric ids in `ADMIN_GITHUB_IDS`, re-checked on every request, so removing an id takes effect immediately. Rotating `ADMIN_SESSION_SECRET` signs everyone out. Missing or weak config disables admin (fail closed).
+    - **OAuth state:** a 10-minute `__Host-` cookie, compared by HMAC.
+    - **CSRF:** every admin form carries a token bound to that sign-in, verified in the action, on top of Next's server-action Origin/Host check and SameSite.
+    - **Where auth is checked:** the admin layout *and* every page and action call `requireAdmin()`. The proxy is not a guard.
+
+    Reversible: the session API is three functions.
+25. **Admin uses its own database role, `skyalerts_web_admin` (migration 0004), via `ADMIN_DATABASE_URL`.** It has SELECT on data tables and `ingest_runs`, and append-only `INSERT (actor_github_id, action, target, details)` on `audit_log`, with no UPDATE or DELETE anywhere. Public pages keep using `skyalerts_ro` through a separate pool, so a public-page bug can't write.
+26. **Manual re-run: the web app POSTs to the ingest project's `/api/manual/ingest`** with `MANUAL_TRIGGER_SECRET`, which is distinct from `CRON_SECRET` so the web project never holds the cron secret. The audit row is written *before* the call, and if that fails nothing is triggered. The call runs in `after()` within a 300 s `maxDuration`. The ingest lease prevents overlapping runs, and the button is disabled while a run is active. The ingest project keeps Vercel Authentication on its `*.vercel.app` URLs, so the call also sends that project's "Protection Bypass for Automation" secret (`MANUAL_TRIGGER_BYPASS`) as `x-vercel-protection-bypass`. The ingest endpoint stays doubly guarded, and nothing about it becomes public.
+27. **Sign-in monitoring:** each sign-in writes a structured log line (`event: admin_sign_in`) for a Vercel log alert, and denied sign-ins are audited with the GitHub id that tried. The digest and settings pages are placeholders until Phase 3, when there is something to configure.
+
+## 2026-11-01 — Phase 2 (public dashboard)
+
+19. **Web stack: Next.js 16 (App Router) + TypeScript 6, plain CSS, `pg`, no chart library.** Four runtime dependencies: `next`, `react`, `react-dom`, `pg`. Plain CSS instead of Tailwind keeps the dependency list short. `pg` instead of `@neondatabase/serverless` means the same driver runs locally, in CI and on Vercel (Neon's pooled endpoint). Charts are server-rendered SVG, which needs no client JavaScript and so keeps the CSP strict. TypeScript is pinned to 6.x: 7.0 is the native-compiler rewrite released days ago, and Dependabot ignores its major version until we adopt it on purpose. Reversible.
+20. **Nonce-based CSP via `proxy.ts`, so every page renders per request; database reads are cached for 10 minutes** (`unstable_cache`, keyed by a 10-minute time bucket). Ingest runs once a day, so cached reads lose nothing and keep the free-tier Neon compute asleep between visits. Static headers (HSTS 2 years with subdomains, nosniff, frame DENY, Referrer-Policy, Permissions-Policy, COOP) live in `next.config.ts`. Reversible: SRI-based CSP (experimental in Next 16) would allow static pages later.
+21. **Light curves:** ZTF is plotted in magnitudes, using ALeRCE's corrected apparent magnitude (`magpsf_corr`) when `corrected` is true. Uncorrected negative differences (`isdiffpos = -1`) have no meaningful magnitude and are left off, with a count in the caption. LSST is plotted as difference flux in µJy, where negative values are real measurements. g/r/i overlay on one chart in a palette checked for colour-vision deficiency; any other band set switches to one panel per band, because six hues can't stay distinguishable.
+22. **Artifacts (`bogus`, roughly a third of LSST rows) are hidden by default** behind a "Show artifacts" toggle. "Most notable" ordering uses the same tiers as ingest enrichment (#18): explosions and outbursts first, active galaxies last.
+23. **ALeRCE explorer link for LSST objects is `alerce.online/object/?oid=<id>&survey=lsst`.** It is the form reported working on the Rubin community forum; ALeRCE hasn't documented one. Re-check if links break.
+
 ## Pending / OWNER
 
 - ~~Ingest scheduler~~ → decided, see #13.
