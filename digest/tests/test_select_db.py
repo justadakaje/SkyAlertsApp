@@ -7,20 +7,25 @@ sample objects and detections, and verifies selection rules as skyalerts_ro.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 import psycopg
 import pytest
 from psycopg import conninfo
 from psycopg.types.json import Jsonb
 
+from skyalerts_digest import web
 from skyalerts_digest.__main__ import main as cli_main
+from skyalerts_digest.config import DigestConfig
 from skyalerts_digest.render import render_html, render_markdown
 from skyalerts_digest.select import Digest, datetime_to_mjd, select_digest
+from skyalerts_digest.send import RESEND_EMAILS_URL, send_digest
 
 ADMIN_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not ADMIN_URL, reason="TEST_DATABASE_URL not set")
@@ -343,3 +348,109 @@ def test_cli_prints_markdown_and_html(
     assert "<h1>Sky Alerts Weekly Digest</h1>" in out_html
     assert 'href="https://sky.henseler.app/objects/ztf/ZTF26cli"' in out_html
     assert render_html is not None
+
+
+def test_db_backed_end_to_end_digest_send_and_wsgi(
+    db_urls: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin_dsn, ro_dsn = db_urls
+    with psycopg.connect(admin_dsn, autocommit=True) as conn:
+        _insert_object(
+            conn,
+            oid="ZTF26e2e_sn",
+            top_class="SNIa",
+            top_probability=0.96,
+            firstmjd=END_MJD - 1.5,
+            lastmjd=END_MJD - 0.5,
+            ndet=9,
+        )
+        _insert_detection(
+            conn,
+            oid="ZTF26e2e_sn",
+            measurement_id="det_e2e_1",
+            mjd=END_MJD - 0.5,
+            mag=15.75,
+            band="g",
+        )
+        _insert_object(
+            conn,
+            oid="ZTF26e2e_ast",
+            top_class="asteroid",
+            top_probability=0.99,
+            firstmjd=END_MJD - 2.0,
+        )
+
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(200, json={"id": "re_e2e_999"})
+
+    transport = httpx.MockTransport(handler)
+    cron_secret = "c" * 32
+    resend_key = "re_e2e_test_secret_key_000000"
+
+    monkeypatch.setenv("CRON_SECRET", cron_secret)
+    monkeypatch.setenv("DATABASE_URL", ro_dsn)
+    monkeypatch.setenv("RESEND_API_KEY", resend_key)
+    monkeypatch.setenv("DIGEST_TO", "owner@example.com")
+    monkeypatch.setattr(web, "_today_utc_midnight", lambda: WEEK_END)
+    monkeypatch.setattr(
+        web,
+        "_http_client",
+        lambda: httpx.Client(transport=transport, timeout=10.0),
+    )
+
+    resp_meta: dict[str, Any] = {}
+
+    def start_response(status: str, headers: list[tuple[str, str]]) -> None:
+        resp_meta["status"] = status
+        resp_meta["headers"] = dict(headers)
+
+    raw_body = b"".join(
+        web.app(
+            {
+                "PATH_INFO": "/api/cron/digest",
+                "REQUEST_METHOD": "GET",
+                "HTTP_AUTHORIZATION": f"Bearer {cron_secret}",
+            },
+            start_response,
+        )
+    )
+    body = json.loads(raw_body)
+    assert resp_meta["status"].startswith("200")
+    assert body == {
+        "status": "sent",
+        "week_end": "2026-11-01",
+        "headliners": 1,
+        "id": "re_e2e_999",
+    }
+
+    assert len(captured_requests) == 1
+    req = captured_requests[0]
+    assert str(req.url) == RESEND_EMAILS_URL
+    assert req.headers["Authorization"] == f"Bearer {resend_key}"
+    assert req.headers["Idempotency-Key"] == "digest-2026-11-01"
+
+    payload = json.loads(req.content.decode())
+    assert payload["from"] == "Sky Alerts <digest@sky.henseler.app>"
+    assert payload["to"] == ["owner@example.com"]
+    assert payload["subject"] == "What the sky did this week · Oct 25\u2013Nov 1 (1 new explosions)"
+    assert "ZTF26e2e_sn" in payload["html"]
+    assert "ZTF26e2e_ast" in payload["html"]
+    assert "mag 15.75 (g)" in payload["html"]
+    assert "ZTF26e2e_sn" in payload["text"]
+    assert "ZTF26e2e_ast" in payload["text"]
+    assert "mag 15.75 (g)" in payload["text"]
+
+    # Also verify direct select_digest + send_digest call
+    cfg = DigestConfig.from_env()
+    with (
+        psycopg.connect(ro_dsn, autocommit=True) as ro_conn,
+        httpx.Client(transport=transport) as client,
+    ):
+        digest = select_digest(ro_conn, WEEK_END)
+        direct_res = send_digest(digest, cfg, client)
+    assert direct_res.id == "re_e2e_999"
+    assert len(captured_requests) == 2
