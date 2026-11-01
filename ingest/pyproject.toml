@@ -8,6 +8,7 @@ dependencies = [
   # HTTP client with timeouts + MockTransport for offline tests. Replaces the
   # official `alerce` client (pandas/astropy/matplotlib, no timeout/retry). See docs/decisions.md #3.
   "httpx>=0.28.1,<0.29",
+  "psycopg[binary]>=3.3,<3.4",
 ]
 
 [dependency-groups]
@@ -26,6 +27,10 @@ packages = ["skyalerts_ingest"]
 [tool.uv]
 package = true
 
+# Vercel Python runtime entrypoint (WSGI callable). Cron: see vercel.json.
+[tool.vercel]
+entrypoint = "skyalerts_ingest.web:app"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -35,7 +40,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "DTZ", "LOG", "G"]
 ignore = ["S311"] # random is used for backoff jitter only, not crypto
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105"]
+"tests/**" = ["S101", "S105", "S106"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
