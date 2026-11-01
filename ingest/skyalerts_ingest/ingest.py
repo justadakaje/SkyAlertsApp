@@ -2,7 +2,7 @@
 
     DATABASE_URL=... python -m skyalerts_ingest.ingest [--surveys lsst,ztf] [--trigger cli]
 
-Strategy (fits Vercel Hobby: one run/day, 300 s max; see docs/decisions.md #13, #18, #19):
+Strategy (fits Vercel Hobby: one run/day, 300 s max; see docs/decisions.md #13, #18, #24):
 - Page each source newest-first (order_by=lastmjd DESC) and stop once a page
   reaches objects older than the source's catch-up floor, or the page cap / time budget.
 - The floor is in data time: the newest lastmjd the source saw when its window last
@@ -87,7 +87,7 @@ class Source:
 # Neither unfiltered stream can be paged in a run (LSST ~500 pages/night, ZTF 100 rows
 # per ~2 min of data), so each classifier's tier-1 transient classes (store.TIER1_CLASSES)
 # are paged completely and the rest is a newest-first sample. Volumes measured
-# 2026-11-01, see decisions.md #19. Order matters for top_class: later LSST rows win
+# 2026-11-01, see decisions.md #24. Order matters for top_class: later LSST rows win
 # (SN over the sample); for ZTF, lc always wins over stamp (store._TAKE_TOP).
 ZTF_LC_TIER1 = ("SNIa", "SNIbc", "SNII", "SLSN", "CV/Nova")
 SOURCES: tuple[Source, ...] = (

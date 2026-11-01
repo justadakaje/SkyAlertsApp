@@ -186,7 +186,7 @@ def test_abandoned_lease_is_reclaimed(ingest_dsn, make_client):
     assert statuses == ["failed", "success"]
 
 
-# -- catch-up window (docs/decisions.md #19) ----------------------------------
+# -- catch-up window (docs/decisions.md #24) ----------------------------------
 
 SAMPLE = Source("lsst", complete=False, max_pages=2)
 SN = Source("lsst", "clf", "SN", max_pages=3)
