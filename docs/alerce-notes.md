@@ -108,11 +108,37 @@ Schema implication: `oid` stored as `text` with a `survey` column; composite key
 - `ndethist` really is a **string**. Coerce it.
 - **Freshness:** newest ZTF last detection was **65.5 h old** (2026-10-29). ZTF cadence is slowing or patchy, so it can't be the "fresh" signal. Treat Rubin as primary and ZTF as secondary.
 
+## LSST volume probe — 2026-11-01 ~19:35 UTC (local, ~20 requests at ≤1 req/s)
+
+Basis for decision #28.
+- **The unfiltered list is far too deep to page.** Newest-first at `page_size=100`:
+  - page 1 is at `lastmjd` 61344.3188
+  - page 20 is at 61344.22
+  - page 100 is at 61344.19
+  - page 250 is at 61344.11
+
+  That's 25,000 rows within ~5 h of one night, so a full night is roughly 400–600 pages. Deep pages take 1.1–1.8 s each.
+- **Rows repeat per classifier.** An unfiltered page holds only ~50–90 distinct `oid`s, because each object comes back once per stamp classifier (`stamp_classifier_rubin_beta_20260421` and the older `stamp_classifier_rubin_beta`).
+- **Ties are huge.** A single Rubin visit puts hundreds of rows on the same `lastmjd`: pages 50 and 100 each sat on a single value. Offset paging inside a tie group isn't guaranteed stable.
+- **Class mix** (1,662 objects from the newest pages): AGN 50%, bogus 32%, asteroid 14%, VS 4%, SN 1.3%.
+- **`class_name` needs `classifier`.** Without it the API answers HTTP 400 `class_name needs a classifier: pass classifier too.`. With both, the rows are top-class (`ranking` 1) and one per object.
+- **SN per night:** `stamp_classifier_rubin_beta_20260421` + `SN` covered night 61344 in pages 1–4. Night 61343 took ≥8 pages. The older classifier lags: its page 1 spans 61343.08–61344.28.
+- **ZTF is a firehose too.** The unfiltered `stamp_classifier` page 1 spans only 61342.5536–61342.5546, about 1.5 min of data, and 20 pages reach about 17 min back. By class (`classifier` + `class`):
+  - stamp SN: page 1 spans 1.1 d, page 5 reaches 5.3 d back
+  - lc SNIa: page 1 spans 8.4 d
+  - lc SNIbc: 3.4 d
+  - lc SNII: 1.5 d
+  - lc SLSN: 3.0 d
+  - lc CV/Nova: 1.0 d
+
+  `CV/Nova` works as a query value.
+- **Freshness (open item 4):** at 19:35 UTC the newest LSST row (61344.3188, 2026-10-31 07:39 UTC) was ~36 h old. The night ending 2026-11-01 ~10:00 UTC wasn't in ALeRCE yet. ZTF's newest was 61342.55 (~78 h).
+
 ## Open items to verify on first live run
 1. ~~LSST `list_objects` response field names and pagination keys.~~ Done (see above).
 2. Max accepted `page_size` on both APIs.
 3. Whether either API returns 429 / `Retry-After` under load.
-4. Actual freshness: lag between `lastmjd` and wall clock for newest objects, per survey.
+4. ~~Actual freshness: lag between `lastmjd` and wall clock for newest objects, per survey.~~ LSST ~23–36 h, ZTF ≥65 h (see probes above).
 5. LSST classifier names present in probability responses.
 
 ## Sources
