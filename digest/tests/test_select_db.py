@@ -454,3 +454,93 @@ def test_db_backed_end_to_end_digest_send_and_wsgi(
         direct_res = send_digest(digest, cfg, client)
     assert direct_res.id == "re_e2e_999"
     assert len(captured_requests) == 2
+
+
+def test_db_backed_preview_route_end_to_end(
+    db_urls: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin_dsn, ro_dsn = db_urls
+    with psycopg.connect(admin_dsn, autocommit=True) as conn:
+        _insert_object(
+            conn,
+            oid="ZTF26prev_sn",
+            top_class="SNIa",
+            top_probability=0.92,
+            firstmjd=END_MJD - 1.2,
+            lastmjd=END_MJD - 0.3,
+            ndet=8,
+        )
+        _insert_detection(
+            conn,
+            oid="ZTF26prev_sn",
+            measurement_id="det_prev_1",
+            mjd=END_MJD - 0.3,
+            mag=16.05,
+            band="r",
+        )
+        _insert_object(
+            conn,
+            oid="ZTF26prev_ast",
+            top_class="asteroid",
+            top_probability=0.98,
+            firstmjd=END_MJD - 2.0,
+        )
+
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(200, json={"id": "should_not_be_called"})
+
+    transport = httpx.MockTransport(handler)
+    trigger_secret = "t" * 32
+
+    monkeypatch.setenv("DIGEST_TRIGGER_SECRET", trigger_secret)
+    monkeypatch.setenv("DATABASE_URL", ro_dsn)
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("DIGEST_TO", raising=False)
+    monkeypatch.setattr(web, "_today_utc_midnight", lambda: WEEK_END)
+    monkeypatch.setattr(
+        web,
+        "_http_client",
+        lambda: httpx.Client(transport=transport, timeout=10.0),
+    )
+
+    resp_meta: dict[str, Any] = {}
+
+    def start_response(status: str, headers: list[tuple[str, str]]) -> None:
+        resp_meta["status"] = status
+        resp_meta["headers"] = dict(headers)
+
+    raw_body = b"".join(
+        web.app(
+            {
+                "PATH_INFO": "/api/preview/digest",
+                "REQUEST_METHOD": "POST",
+                "HTTP_AUTHORIZATION": f"Bearer {trigger_secret}",
+            },
+            start_response,
+        )
+    )
+    body = json.loads(raw_body)
+    assert resp_meta["status"].startswith("200")
+    assert set(body.keys()) == {
+        "status",
+        "week_end",
+        "subject",
+        "headliners",
+        "digest_markdown",
+        "podcast_markdown",
+    }
+    assert body["status"] == "ok"
+    assert body["week_end"] == "2026-11-01"
+    assert body["subject"] == "What the sky did this week · Oct 25\u2013Nov 1 (1 new explosions)"
+    assert body["headliners"] == 1
+    assert "# Sky Alerts Weekly Digest" in body["digest_markdown"]
+    assert "ZTF26prev_sn" in body["digest_markdown"]
+    assert "# What the sky did this week · Oct 25\u2013Nov 1" in body["podcast_markdown"]
+    assert "ZTF26prev_sn" in body["podcast_markdown"]
+    assert "about 92 percent" in body["podcast_markdown"]
+    assert "https://sky.henseler.app/objects/ztf/ZTF26prev_sn" in body["podcast_markdown"]
+    assert captured_requests == []

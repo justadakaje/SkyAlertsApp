@@ -117,3 +117,14 @@ def test_manual_trigger_runs_with_manual_trigger_and_maps_status(
     assert calls == {"trigger": "manual", "client": "fake-client", "closed": True}
     assert body["status"] == run_status and body["run_id"] == 7
     assert MANUAL_SECRET not in json.dumps(body) and SECRET not in json.dumps(body)
+
+
+def test_shared_headers_are_not_mutated_between_responses():
+    # wsgiref appends Content-Length to the list it is given; a shared module-level
+    # list would leak the first response's length into later ones and truncate them.
+    def start_response(status, headers):
+        headers.append(("Content-Length", "1"))
+
+    for _ in range(2):
+        list(web.app({"PATH_INFO": "/nope", "REQUEST_METHOD": "GET"}, start_response))
+    assert all(name != "Content-Length" for name, _ in web.HEADERS)

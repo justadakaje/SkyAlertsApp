@@ -6,6 +6,7 @@ and domain only).
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from collections.abc import Callable
@@ -15,6 +16,7 @@ from datetime import datetime
 import httpx
 
 from .config import DigestConfig
+from .podcast import render_podcast
 from .render import render_html, render_markdown
 from .select import Digest, normalize_utc
 
@@ -99,6 +101,8 @@ def send_digest(
     idem_key = idempotency_key(digest)
     html_body = render_html(digest)
     text_body = render_markdown(digest)
+    podcast_md = render_podcast(digest)
+    podcast_b64 = base64.b64encode(podcast_md.encode("utf-8")).decode("ascii")
 
     headers = {
         "Authorization": f"Bearer {cfg.resend_api_key}",
@@ -110,6 +114,12 @@ def send_digest(
         "subject": subject,
         "html": html_body,
         "text": text_body,
+        "attachments": [
+            {
+                "filename": f"sky-this-week-{week_end_str}.md",
+                "content": podcast_b64,
+            }
+        ],
     }
 
     domains = cfg.recipient_domains

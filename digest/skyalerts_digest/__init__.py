@@ -14,6 +14,7 @@ from .classes import (
     group_of,
 )
 from .config import DEFAULT_DIGEST_FROM, ConfigError, DigestConfig
+from .podcast import render_podcast
 from .render import SITE_BASE_URL, object_url, render_html, render_markdown
 from .select import (
     Digest,
@@ -67,6 +68,7 @@ __all__ = [
     "object_url",
     "render_html",
     "render_markdown",
+    "render_podcast",
     "select_digest",
     "send_digest",
 ]
