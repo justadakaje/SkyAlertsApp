@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 import { StatusPill } from '@/components/admin/AdminBits'
-import { triggerConfig } from '@/lib/auth/config'
+import { digestConfig, triggerConfig } from '@/lib/auth/config'
 import { requireAdmin } from '@/lib/auth/server'
 import { formatUtc } from '@/lib/format'
 
@@ -10,6 +10,7 @@ export const metadata: Metadata = { title: 'Settings' }
 export default async function SettingsPage() {
   const { cfg, session } = await requireAdmin()
   const trigger = triggerConfig()
+  const digest = digestConfig()
   // Presence only: secret values and lengths are never rendered.
   const checks: [string, boolean, string][] = [
     ['GitHub OAuth app', true, 'GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET'],
@@ -18,6 +19,7 @@ export default async function SettingsPage() {
     ['Public database role', Boolean(process.env.DATABASE_URL), 'DATABASE_URL (skyalerts_ro)'],
     ['Manual ingest trigger', trigger !== null, 'MANUAL_TRIGGER_URL / MANUAL_TRIGGER_SECRET'],
     ['Ingest protection bypass', Boolean(trigger?.bypass), 'MANUAL_TRIGGER_BYPASS (needed while ingest URLs are behind Vercel Auth)'],
+    ['Digest preview & send', digest !== null, 'DIGEST_URL / DIGEST_TRIGGER_SECRET'],
   ]
   return (
     <>
@@ -38,6 +40,11 @@ export default async function SettingsPage() {
             Manual runs go to <code>{new URL(trigger.url).host}</code>.
           </p>
         ) : null}
+        {digest ? (
+          <p className="small muted">
+            Digest preview and manual sends go to <code>{new URL(digest.url).host}</code>.
+          </p>
+        ) : null}
       </section>
       <section className="panel" aria-labelledby="access-heading">
         <h2 id="access-heading">Access</h2>
@@ -51,7 +58,10 @@ export default async function SettingsPage() {
       </section>
       <section className="panel">
         <h2>Digest settings</h2>
-        <p className="muted">Recipient and schedule arrive with the Phase 3 digest.</p>
+        <p className="muted">
+          Weekly digest preview, manual send (idempotent: one send per UTC day), and podcast outline export are
+          available on the Digest tab when <code>DIGEST_URL</code> and <code>DIGEST_TRIGGER_SECRET</code> are set.
+        </p>
       </section>
     </>
   )

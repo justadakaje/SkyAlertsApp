@@ -54,3 +54,22 @@ export function triggerConfig(env: Env = process.env): TriggerConfig | null {
   }
   return { url, secret, bypass }
 }
+
+export interface DigestConfig {
+  url: string
+  secret: string
+}
+
+/** Base URL and bearer secret for the digest service (/api/preview/digest and /api/manual/digest). */
+export function digestConfig(env: Env = process.env): DigestConfig | null {
+  const rawUrl = env.DIGEST_URL?.trim()
+  const secret = env.DIGEST_TRIGGER_SECRET ?? ''
+  if (!rawUrl || secret.length < 32) return null
+  try {
+    const u = new URL(rawUrl)
+    if (u.protocol !== 'https:' && u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return null
+  } catch {
+    return null
+  }
+  return { url: rawUrl.replace(/\/+$/, ''), secret }
+}

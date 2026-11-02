@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_FILTERS, PAGE_SIZE } from '@/lib/filters'
-import { classCounts, getObject, listEvents, ORDER_BY, type Db } from '@/lib/queries'
+import { classCounts, dailyCounts, getObject, listEvents, ORDER_BY, weekComparison, type Db } from '@/lib/queries'
 
 function fakeDb(rows: unknown[] = []) {
   const calls: { text: string; params: unknown[] }[] = []
@@ -62,5 +62,28 @@ describe('other queries', () => {
     const { db, calls } = fakeDb([])
     expect(await getObject(db, 'ztf', 'ZTF18acwycia')).toBeNull()
     expect(calls[0]!.params).toEqual(['ztf', 'ZTF18acwycia'])
+  })
+
+  it('binds sinceMjd for dailyCounts and excludes artifacts', async () => {
+    const { db, calls } = fakeDb([{ day: 61255, topClass: 'SN', n: 4 }])
+    expect(await dailyCounts(db, 61255)).toEqual([{ day: 61255, topClass: 'SN', n: 4 }])
+    expect(calls[0]!.params).toEqual([61255])
+    expect(calls[0]!.text).toContain("IS DISTINCT FROM 'bogus'")
+  })
+
+  it('binds week boundaries and transient classes for weekComparison', async () => {
+    const row = { newThisWeek: 12, newLastWeek: 10, transientsThisWeek: 4, transientsLastWeek: 2 }
+    const { db, calls } = fakeDb([row])
+    expect(await weekComparison(db, 61338, 61331)).toEqual(row)
+    expect(calls[0]!.params).toEqual([61338, 61331, expect.arrayContaining(['SN', 'SNIa', 'TDE'])])
+    expect(calls[0]!.text).toContain("IS DISTINCT FROM 'bogus'")
+
+    const empty = fakeDb([])
+    expect(await weekComparison(empty.db, 61338, 61331)).toEqual({
+      newThisWeek: 0,
+      newLastWeek: 0,
+      transientsThisWeek: 0,
+      transientsLastWeek: 0,
+    })
   })
 })
