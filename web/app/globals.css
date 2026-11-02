@@ -738,6 +738,17 @@ tbody th {
   font-weight: 600;
 }
 
+.tile-delta {
+  margin-left: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.tile-sub {
+  margin: 4px 0 0;
+}
+
 /* About page */
 .about-facts {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

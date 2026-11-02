@@ -7,9 +7,11 @@ The public Sky Alerts site (Next.js 16, App Router), served at **https://sky.hen
 | `/` | Latest events, filterable by class, survey and time window; "most notable" or newest first; artifacts hidden by default |
 | `/objects/[survey]/[oid]` | One object: class and plain-English blurb, key facts, light curve, classifier probabilities, sky position, ALeRCE link |
 | `/stats` | Totals, new objects per day (stacked by class group), per-class counts by week |
+| `/trends` | 90-day daily small multiples by class group, 12-week 100%-stacked class mix, week-over-week comparison |
 | `/about` | Plain-English guide to Sky Alerts, how to read light curves and sky maps, class groups, and data credits |
 | `/skyalerts-explainer.html` | Static interactive architecture and pipeline explainer ("How It Works") |
-| `/admin` | Owner only (GitHub sign-in): ingest health, runs and their errors, manual re-run, audit log, config status. Digest preview/send arrives with Phase 3 |
+| `/admin` | Owner only (GitHub sign-in): ingest health, runs and their errors, manual re-run, weekly digest preview/send, audit log, config status |
+| `/admin/digest/podcast` | Owner only: downloads this week's podcast outline as `sky-this-week-<week_end>.md` |
 
 ## Run locally
 
@@ -39,6 +41,8 @@ npm run build
 | `MANUAL_TRIGGER_URL` | Vercel (Production) | `https://<skyalerts-ingest domain>/api/manual/ingest` |
 | `MANUAL_TRIGGER_SECRET` | Vercel (Production, both projects) | Random, at least 32 characters; the same value in `skyalerts-ingest` |
 | `MANUAL_TRIGGER_BYPASS` | Vercel (Production), optional | The ingest project's "Protection Bypass for Automation" secret. Needed while `skyalerts-ingest` keeps Vercel Authentication on its `*.vercel.app` URLs; sent as `x-vercel-protection-bypass` |
+| `DIGEST_URL` | Vercel (Production) | Base URL of the digest service (`https://skyalerts-digest.vercel.app`) |
+| `DIGEST_TRIGGER_SECRET` | Vercel (Production, both projects) | Random, at least 32 characters; shared with `skyalerts-digest` for `/api/preview/digest` and `/api/manual/digest` |
 
 `DATABASE_URL` is read-only with a 10 s statement timeout (`db/migrations/0002`). Admin is disabled (fail closed) unless the GitHub, session and allowlist variables are all set. Preview deployments should not get the admin variables.
 

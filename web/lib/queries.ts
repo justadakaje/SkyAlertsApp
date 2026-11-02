@@ -184,6 +184,40 @@ export async function totals(db: Db, weekAgoMjd: number): Promise<Totals> {
   return rows[0] ?? { objects: 0, newThisWeek: 0, transientsThisWeek: 0, detections: 0 }
 }
 
+export interface WeekComparison {
+  newThisWeek: number
+  newLastWeek: number
+  transientsThisWeek: number
+  transientsLastWeek: number
+}
+
+/** This week vs last week counts (new objects, explosions & outbursts), artifacts excluded. */
+export async function weekComparison(
+  db: Db,
+  weekAgoMjd: number,
+  twoWeeksAgoMjd: number,
+): Promise<WeekComparison> {
+  const { rows } = await db.query<WeekComparison>(
+    `SELECT (count(*) FILTER (WHERE firstmjd >= $1))::int AS "newThisWeek",
+            (count(*) FILTER (WHERE firstmjd >= $2 AND firstmjd < $1))::int AS "newLastWeek",
+            (count(*) FILTER (WHERE firstmjd >= $1 AND top_class = ANY($3::text[])))::int
+              AS "transientsThisWeek",
+            (count(*) FILTER (WHERE firstmjd >= $2 AND firstmjd < $1 AND top_class = ANY($3::text[])))::int
+              AS "transientsLastWeek"
+       FROM objects
+      WHERE firstmjd >= $2 AND top_class IS DISTINCT FROM '${ARTIFACT_CLASS}'`,
+    [weekAgoMjd, twoWeeksAgoMjd, TRANSIENT_CLASSES],
+  )
+  return (
+    rows[0] ?? {
+      newThisWeek: 0,
+      newLastWeek: 0,
+      transientsThisWeek: 0,
+      transientsLastWeek: 0,
+    }
+  )
+}
+
 /** Unix seconds of the last ingest run that stored data, or null. Errors stay admin-only. */
 export async function lastUpdated(db: Db): Promise<number | null> {
   const { rows } = await db.query<{ finished: number | null }>(

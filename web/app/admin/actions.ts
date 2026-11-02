@@ -5,8 +5,9 @@ import { redirect } from 'next/navigation'
 import { after } from 'next/server'
 
 import { getAdminPool } from '@/lib/admin/db'
+import { parseDigestSendResponse, SEND_TIMEOUT_MS, sendDigestHref } from '@/lib/admin/digest'
 import { activeRun, insertAudit } from '@/lib/admin/queries'
-import { SESSION_COOKIE, triggerConfig } from '@/lib/auth/config'
+import { digestConfig, SESSION_COOKIE, triggerConfig } from '@/lib/auth/config'
 import { COOKIE_OPTS, log, requireAdminForm } from '@/lib/auth/server'
 
 // Ingest takes up to ~4 min; leave the manual call room to finish under Vercel's 300 s.
@@ -43,6 +44,53 @@ export async function runIngestNow(form: FormData) {
     }
   })
   redirect('/admin?notice=requested')
+}
+
+/** Ask the digest project to send this week's digest now. Audited before it's sent. */
+export async function sendDigestNow(form: FormData) {
+  const { session } = await requireAdminForm(form)
+  const digest = digestConfig()
+  if (!digest) redirect(sendDigestHref('digest_unconfigured'))
+
+  const db = getAdminPool()
+  // The audit row is written first: if it fails, nothing is triggered.
+  await insertAudit(db, {
+    actor: session.uid,
+    action: 'digest.send',
+    target: 'digest',
+    details: { login: session.login },
+  })
+  log('info', 'manual digest send requested', { uid: session.uid })
+
+  let sentHeadliners: number | null = null
+  try {
+    const res = await fetch(`${digest.url}/api/manual/digest`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${digest.secret}`,
+      },
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      cache: 'no-store',
+    })
+    if (res.ok) {
+      const body = parseDigestSendResponse(await res.json().catch(() => null))
+      if (body) {
+        sentHeadliners = body.headliners
+        log('info', 'manual digest sent', { status: res.status, weekEnd: body.weekEnd, headliners: body.headliners })
+      } else {
+        log('error', 'manual digest invalid response', { status: res.status })
+      }
+    } else {
+      log('error', 'manual digest failed', { status: res.status })
+    }
+  } catch (err) {
+    log('error', 'manual digest call failed', { error: err instanceof Error ? err.name : 'unknown' })
+  }
+
+  if (sentHeadliners !== null) {
+    redirect(sendDigestHref('digest_sent', sentHeadliners))
+  }
+  redirect(sendDigestHref('digest_failed'))
 }
 
 export async function signOut(form: FormData) {

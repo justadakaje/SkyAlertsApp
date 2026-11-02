@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { adminConfig, parseAllowlist, SESSION_COOKIE, triggerConfig } from '@/lib/auth/config'
+import { adminConfig, digestConfig, parseAllowlist, SESSION_COOKIE, triggerConfig } from '@/lib/auth/config'
 
 const base = {
   GITHUB_CLIENT_ID: 'Iv1.test',
@@ -48,5 +48,26 @@ describe('triggerConfig', () => {
     expect(triggerConfig({ ...t, MANUAL_TRIGGER_URL: 'http://localhost:8000/api/manual/ingest' })).not.toBeNull()
     expect(triggerConfig({ ...t, MANUAL_TRIGGER_URL: 'not a url' })).toBeNull()
     expect(triggerConfig({ ...t, MANUAL_TRIGGER_SECRET: 'short' })).toBeNull()
+  })
+})
+
+describe('digestConfig', () => {
+  const d = { DIGEST_URL: 'https://skyalerts-digest.vercel.app', DIGEST_TRIGGER_SECRET: 'd'.repeat(32) }
+
+  it('requires https (or localhost/127.0.0.1) and a >=32-char secret, stripping trailing slashes', () => {
+    expect(digestConfig(d)).toEqual({ url: 'https://skyalerts-digest.vercel.app', secret: d.DIGEST_TRIGGER_SECRET })
+    expect(digestConfig({ ...d, DIGEST_URL: 'https://skyalerts-digest.vercel.app///' })?.url).toBe(
+      'https://skyalerts-digest.vercel.app',
+    )
+    expect(digestConfig({ ...d, DIGEST_URL: 'http://localhost:8001' })?.url).toBe('http://localhost:8001')
+    expect(digestConfig({ ...d, DIGEST_URL: 'http://127.0.0.1:8001/' })?.url).toBe('http://127.0.0.1:8001')
+  })
+
+  it('fails closed on missing, insecure, or short values', () => {
+    expect(digestConfig({})).toBeNull()
+    expect(digestConfig({ ...d, DIGEST_URL: '' })).toBeNull()
+    expect(digestConfig({ ...d, DIGEST_URL: 'http://skyalerts-digest.vercel.app' })).toBeNull()
+    expect(digestConfig({ ...d, DIGEST_URL: 'not-a-url' })).toBeNull()
+    expect(digestConfig({ ...d, DIGEST_TRIGGER_SECRET: 'x'.repeat(31) })).toBeNull()
   })
 })
