@@ -7,17 +7,19 @@ ALeRCE client, Phase 0 exploration script, and the daily ingest job.
 uv sync --frozen
 uv run pytest                              # set TEST_DATABASE_URL for the DB tests
 DATABASE_URL=<skyalerts_ingest dsn> uv run python -m skyalerts_ingest.ingest --surveys lsst,ztf
+DATABASE_URL=<skyalerts_ingest dsn> uv run python -m skyalerts_ingest.sso --max 30
 ```
 
 ## Deployment: Vercel project `skyalerts-ingest` (Root Directory `ingest/`)
-- Entrypoint: `skyalerts_ingest.web:app` (WSGI, `[tool.vercel]` in pyproject). Routes: `GET /api/cron/ingest` (Vercel Cron) and `POST /api/manual/ingest` (owner-triggered re-run from `/admin`).
-- Cron: `0 13 * * *` (Hobby: once a day, fires within the 13:00 UTC hour). That's after the Chilean night and ALeRCE processing.
-- `maxDuration` is 300 s. The job budgets 240 s and records `partial` if it runs out.
+- Entrypoint: `skyalerts_ingest.web:app` (WSGI, `[tool.vercel]` in pyproject). Routes: `GET /api/cron/ingest` and `GET /api/cron/identify` (Vercel Cron), plus `POST /api/manual/ingest` and `POST /api/manual/identify` (owner-triggered re-runs from `/admin`).
+- Crons: `0 13 * * *` (`ingest`) and `30 13 * * *` (`identify`) (Hobby: once a day each, firing within the 13:00 UTC hour after the Chilean night and ALeRCE processing).
+- `maxDuration` is 300 s. Each job budgets 240 s.
 - Env vars (Production only):
   - `DATABASE_URL`: `skyalerts_ingest` connection string to database `neondb` with `sslmode=require`. The pooled `-pooler` endpoint is fine: the run lease uses a transaction-scoped lock.
   - `CRON_SECRET`: random, at least 16 characters. Vercel sends it as `Authorization: Bearer …`.
-  - `MANUAL_TRIGGER_SECRET`: random, at least 32 characters, separate from `CRON_SECRET`. Sent as `Authorization: Bearer …` to `POST /api/manual/ingest`; also set in the web project (Production env) as the caller's copy so `/admin` never holds `CRON_SECRET`.
-  - optional: `INGEST_MAX_PAGES` (20, the cap for sources without their own), `INGEST_PAGE_SIZE` (100), `INGEST_TIME_BUDGET_S` (240), `INGEST_ENRICH_MAX` (40), `ALERCE_MIN_INTERVAL_S` (1.0), `LOG_LEVEL`
+  - `MANUAL_TRIGGER_SECRET`: random, at least 32 characters, separate from `CRON_SECRET`. Sent as `Authorization: Bearer …` to `POST /api/manual/ingest` and `POST /api/manual/identify`; also set in the web project (Production env) as the caller's copy so `/admin` never holds `CRON_SECRET`.
+  - optional (`ingest`): `INGEST_MAX_PAGES` (20, the cap for sources without their own), `INGEST_PAGE_SIZE` (100), `INGEST_TIME_BUDGET_S` (240), `INGEST_ENRICH_MAX` (40), `ALERCE_MIN_INTERVAL_S` (1.0), `LOG_LEVEL`
+  - optional (`identify`): `IDENTIFY_MAX` (30), `IDENTIFY_TIME_BUDGET_S` (240), `SKYBOT_MIN_INTERVAL_S` (1.0), `SKYBOT_URL`
 
 ## Behaviour
 - **Sources** (in order; later rows win `top_class`):
@@ -38,3 +40,7 @@ DATABASE_URL=<skyalerts_ingest dsn> uv run python -m skyalerts_ingest.ingest --s
   - Rows dated more than 1 h in the future are ignored for watermarks.
   - LSST SN is flagged if it falls more than 2 days behind the LSST sample. The classifier name is dated, so a rename would freeze it.
 - **Run log:** every run writes an `ingest_runs` row with status, counts (`objects_seen`, `objects_upserted`, `classifications_upserted`, `objects_enriched`, `detections_upserted`), request count, errors, and per-source `coverage` (floor, newest/oldest `lastmjd`, pages, outcome).
+
+## Asteroid identification (`skyalerts_ingest.sso`)
+- Queries IMCCE SkyBoT (`conesearch.php`, `-rd=0.003` deg / 10.8", MPC codes `I41` for ZTF and `X05` for LSST) at `(meanra, meandec, firstmjd)` for up to `IDENTIFY_MAX` (30) `top_class = 'asteroid'` objects that have no `sso_identifications` row or whose `error` row is older than 1 day (ZTF first, then `top_probability DESC`, `lastmjd DESC`).
+- Stores the closest match in `sso_identifications` when separation `d <= 10"` (`status = 'matched'`), otherwise `no_match` (or `error` on upstream failure, without echoing upstream bodies). Stops cleanly when `IDENTIFY_TIME_BUDGET_S` (240 s) is reached. See `docs/decisions.md` #29.

@@ -105,6 +105,15 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
       - Offset paging over large `lastmjd` tie groups can still reorder rows between pages. A Rubin visit puts hundreds of rows on one timestamp. This risk predates this change.
     - **Reversible:** sources, caps and overlap are constants in `ingest/skyalerts_ingest/ingest.py`, and the `coverage` column is additive. **OWNER:** sign off on complete coverage meaning tier-1 transient classes.
 
+## 2026-11-01 — Solar System (identification)
+
+29. **2026-11-01 · Identify `top_class = 'asteroid'` alerts with IMCCE SkyBoT in a separate daily cron ·** Objects classified as `asteroid` by ALeRCE are ML candidates with no Solar System designation attached in the list payload (`ssObjectId = 0` on LSST, `ssnamenr` null on ZTF).
+    - **Why IMCCE SkyBoT instead of JPL `sb_ident`:** live probing showed JPL `sb_ident` took **68 s for a single cone-search query**, whereas SkyBoT (`ssp.imcce.fr/webservices/skybot/api/conesearch.php`, `-mime=text -output=basic`, MPC codes `I41` for ZTF and `X05` for Rubin/LSST) responds in 2–16 s per query and verified `ZTF26acdjxpl` as `(9537) Nolan` at 3.11".
+    - **Search radius and match threshold:** query with `-rd=0.003` deg (10.8") at `(meanra, meandec, firstmjd + 2400000.5)` and accept the closest object only when separation `d <= 10"`. Empty 200 responses and separations `> 10"` are stored as `no_match` in `sso_identifications` (migration 0006) so each object is queried once; `error` rows are retried after 1 day. ZTF candidates are prioritised ahead of LSST, then by `top_probability DESC, lastmjd DESC`.
+    - **Separate cron (`30 13 * * *`, `GET /api/cron/identify` and `POST /api/manual/identify`):** keeping SkyBoT calls in their own job (`IDENTIFY_MAX=30`, `IDENTIFY_TIME_BUDGET_S=240`, ≥1 s between requests, 30 s per-request timeout, and no new query starts unless a full timeout still fits in the budget, so a run ends inside Vercel's 300 s) leaves the 13:00 ingest run's 240 s budget completely untouched.
+    - **Expect few LSST matches:** Rubin's own pipeline already associates known objects (`ssObjectId`), so LSST rows with `ssObjectId = 0` are mostly unknown objects or misclassifications. SkyBoT also accepts unknown observatory codes without an error, so a wrong code would degrade quietly to a geocentric position; `X05` is Rubin's MPC code.
+    - **Reversible:** `sso_identifications` and the `/api/*/identify` routes are additive; `IDENTIFY_MAX=0` disables queries via env var.
+
 ## Pending / OWNER
 
 - ~~Ingest scheduler~~ → decided, see #13.

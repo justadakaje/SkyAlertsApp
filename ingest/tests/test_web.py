@@ -7,6 +7,7 @@ import pytest
 
 from skyalerts_ingest import web
 from skyalerts_ingest.ingest import RunResult
+from skyalerts_ingest.sso import IdentifyResult
 
 SECRET = "s" * 32
 MANUAL_SECRET = "m" * 32
@@ -41,6 +42,12 @@ def test_unknown_path_404():
 def test_wrong_method_405():
     assert call(method="POST", auth=f"Bearer {SECRET}")[0].startswith("405")
     assert call(path="/api/manual/ingest", method="GET", auth=f"Bearer {MANUAL_SECRET}")[
+        0
+    ].startswith("405")
+    assert call(path="/api/cron/identify", method="POST", auth=f"Bearer {SECRET}")[0].startswith(
+        "405"
+    )
+    assert call(path="/api/manual/identify", method="GET", auth=f"Bearer {MANUAL_SECRET}")[
         0
     ].startswith("405")
 
@@ -128,3 +135,61 @@ def test_shared_headers_are_not_mutated_between_responses():
     for _ in range(2):
         list(web.app({"PATH_INFO": "/nope", "REQUEST_METHOD": "GET"}, start_response))
     assert all(name != "Content-Length" for name, _ in web.HEADERS)
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "wrong_auth"),
+    [
+        ("/api/cron/identify", "GET", None),
+        ("/api/cron/identify", "GET", f"Bearer {MANUAL_SECRET}"),
+        ("/api/manual/identify", "POST", None),
+        ("/api/manual/identify", "POST", f"Bearer {SECRET}"),
+    ],
+)
+def test_identify_routes_reject_bad_auth(path, method, wrong_auth):
+    status, headers, body = call(path=path, method=method, auth=wrong_auth)
+    assert status.startswith("401") and body == {"error": "unauthorized"}
+    assert headers["Cache-Control"] == "no-store"
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "secret"),
+    [
+        ("/api/cron/identify", "GET", SECRET),
+        ("/api/manual/identify", "POST", MANUAL_SECRET),
+    ],
+)
+def test_identify_routes_misconfigured_db_500_without_leaking(path, method, secret):
+    status, _, body = call(path=path, method=method, auth=f"Bearer {secret}")
+    assert status.startswith("500") and body == {"error": "misconfigured"}
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "secret"),
+    [
+        ("/api/cron/identify", "GET", SECRET),
+        ("/api/manual/identify", "POST", MANUAL_SECRET),
+    ],
+)
+def test_identify_routes_run_and_return_result(monkeypatch, path, method, secret):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
+    calls = {}
+
+    class FakeStore:
+        def close(self):
+            calls["closed"] = True
+
+    monkeypatch.setattr(web.Store, "connect", staticmethod(lambda dsn: FakeStore()))
+    monkeypatch.setattr(web, "SkyBotClient", lambda: contextlib.nullcontext("fake-skybot"))
+
+    def fake_identify_run(store, client):
+        calls["client"] = client
+        return IdentifyResult(queried=3, matched=2, no_match=1, errors=0, budget_hit=False)
+
+    monkeypatch.setattr(web, "identify_run", fake_identify_run)
+
+    status, _, body = call(path=path, method=method, auth=f"Bearer {secret}")
+    assert status.startswith("200")
+    assert calls == {"client": "fake-skybot", "closed": True}
+    assert body == {"queried": 3, "matched": 2, "no_match": 1, "errors": 0, "budget_hit": False}
+    assert MANUAL_SECRET not in json.dumps(body) and SECRET not in json.dumps(body)
