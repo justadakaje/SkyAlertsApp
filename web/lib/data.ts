@@ -6,6 +6,7 @@ import { dateToMjd } from './astro'
 import { getPool } from './db'
 import { WINDOWS, type HomeFilters, type Survey } from './filters'
 import * as q from './queries'
+import { type Ephemeris, horizonsUrl, loadEphemerides, parseHorizons } from './solar'
 
 // Ingest runs once a day, so query results are cached for 10 minutes. Windows
 // are computed from a 10-minute time bucket so the cache key is stable within it.
@@ -79,3 +80,23 @@ export const getTrends = unstable_cache(
 )
 
 export const getLastUpdated = unstable_cache(async () => q.lastUpdated(getPool()), ['last-updated-v1'], opts)
+
+// Today's positions for the Solar System roster from JPL Horizons. Positions of these
+// distant bodies barely move in a day, so one fetch per UTC day (cached 6 h) is plenty.
+// A body whose lookup fails is null. If JPL looks down (the first two lookups fail, at
+// most 2 × 8 s) the call throws, so the failure is not cached and the next view retries.
+export const getSolarEphemerides = unstable_cache(
+  async (day: string): Promise<Record<string, Ephemeris | null>> =>
+    loadEphemerides(async (b) => {
+      const res = await fetch(horizonsUrl(b.number, day), {
+        headers: { 'User-Agent': 'skyalerts-web (+https://github.com/justadakaje/SkyAlertsApp)' },
+        signal: AbortSignal.timeout(8000),
+        cache: 'no-store',
+      })
+      if (!res.ok) return null
+      const body = (await res.json()) as { result?: unknown }
+      return typeof body.result === 'string' ? parseHorizons(body.result) : null
+    }),
+  ['solar-ephemerides-v1'],
+  { revalidate: 6 * 3600, tags: ['solar'] },
+)
