@@ -52,6 +52,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               <Link href="/">Events</Link>
               <Link href="/stats">Stats</Link>
               <Link href="/trends">Trends</Link>
+              <Link href="/solar-system">Solar System</Link>
               <Link href="/about">About</Link>
               <a href="/skyalerts-explainer.html">How It Works</a>
             </nav>

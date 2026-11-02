@@ -51,11 +51,12 @@ describe('robots and sitemap', () => {
     expect(r.sitemap).toBe('https://sky.henseler.app/sitemap.xml')
   })
 
-  it('lists /, /stats, and /about with absolute URLs on https://sky.henseler.app', () => {
+  it('lists /, /stats, /solar-system and /about with absolute URLs on https://sky.henseler.app', () => {
     const urls = sitemap().map((entry) => entry.url)
     expect(urls).toEqual([
       'https://sky.henseler.app/',
       'https://sky.henseler.app/stats',
+      'https://sky.henseler.app/solar-system',
       'https://sky.henseler.app/about',
     ])
   })

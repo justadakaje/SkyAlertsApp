@@ -29,15 +29,26 @@ function galacticPlane(): string[] {
 
 const PLANE = galacticPlane()
 
-export function SkyMap({ ra, dec }: { ra: number; dec: number }) {
-  const [x, y] = project(ra, dec)
+export interface SkyPoint {
+  ra: number
+  dec: number
+  label: string
+}
+
+// One target (object pages), or several labelled points (Solar System roster).
+export function SkyMap({ ra, dec, points }: { ra?: number; dec?: number; points?: SkyPoint[] }) {
+  const single = ra !== undefined && dec !== undefined ? project(ra, dec) : null
+  const label =
+    single && ra !== undefined && dec !== undefined
+      ? `Sky position: right ascension ${formatRa(ra)}, declination ${formatDec(dec)}`
+      : `Sky positions of ${(points ?? []).map((p) => p.label).join(', ')}`
   return (
     <figure className="chart">
       <svg
         className="chart-svg sky"
         viewBox={`0 0 ${W + PAD * 2} ${H + PAD * 2}`}
         role="img"
-        aria-label={`Sky position: right ascension ${formatRa(ra)}, declination ${formatDec(dec)}`}
+        aria-label={label}
       >
         <rect className="sky-bg" x={PAD} y={PAD} width={W} height={H} rx={6} />
         {[-60, -30, 0, 30, 60].map((d) => (
@@ -59,10 +70,35 @@ export function SkyMap({ ra, dec }: { ra: number; dec: number }) {
         {PLANE.map((d) => (
           <path key={d} className="galactic" d={d} />
         ))}
-        <circle className="target-ring" cx={x} cy={y} r={9} />
-        <circle className="target" cx={x} cy={y} r={4}>
-          <title>{`RA ${formatRa(ra)}, Dec ${formatDec(dec)}`}</title>
-        </circle>
+        {single && ra !== undefined && dec !== undefined && (
+          <>
+            <circle className="target-ring" cx={single[0]} cy={single[1]} r={9} />
+            <circle className="target" cx={single[0]} cy={single[1]} r={4}>
+              <title>{`RA ${formatRa(ra)}, Dec ${formatDec(dec)}`}</title>
+            </circle>
+          </>
+        )}
+        {points?.map((p) => {
+          const [px, py] = project(p.ra, p.dec)
+          // Keep labels inside the map: flip to the left near the right edge.
+          const right = px < PAD + W - 60
+          return (
+            <g key={p.label}>
+              <circle className="target" cx={px} cy={py} r={3.5}>
+                <title>{`${p.label}: RA ${formatRa(p.ra)}, Dec ${formatDec(p.dec)}`}</title>
+              </circle>
+              <text
+                className="sky-label"
+                x={right ? px + 6 : px - 6}
+                y={py}
+                textAnchor={right ? 'start' : 'end'}
+                dominantBaseline="middle"
+              >
+                {p.label}
+              </text>
+            </g>
+          )
+        })}
       </svg>
       <figcaption className="muted small">
         Whole sky, right ascension (hours) across, declination (degrees) up. The dashed curve is the

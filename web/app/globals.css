@@ -1037,3 +1037,76 @@ code {
     forced-color-adjust: none;
   }
 }
+
+/* Solar System page */
+.mono {
+  font-family: var(--mono);
+}
+
+.chart .sky-label {
+  fill: var(--text);
+  font-size: 9px;
+}
+
+.solar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.solar-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  scroll-margin-top: 16px;
+}
+
+.solar-card h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.solar-card p {
+  margin: 4px 0 8px;
+}
+
+.solar-photo {
+  margin: 0 0 10px;
+}
+
+.solar-photo img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: calc(var(--radius) - 2px);
+  background: #000;
+}
+
+.solar-photo figcaption {
+  margin-top: 4px;
+}
+
+.solar-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 8px 0;
+}
+
+.solar-facts dt {
+  color: var(--muted);
+}
+
+.solar-facts dd {
+  margin: 0;
+}
+
+.solar-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-bottom: 0;
+}
