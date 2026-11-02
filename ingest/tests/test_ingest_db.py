@@ -7,9 +7,10 @@ db/migrations, then runs ingest as skyalerts_ingest to prove the grants suffice.
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -17,7 +18,7 @@ import psycopg
 import pytest
 from psycopg import conninfo
 
-from skyalerts_ingest.ingest import Config, run
+from skyalerts_ingest.ingest import LSST_STAMP_CLASSIFIER, Config, Source, run
 from skyalerts_ingest.store import Store
 from tests.conftest import load_fixture
 
@@ -137,7 +138,8 @@ def test_one_source_down_is_partial_and_logged(ingest_dsn, make_client):
         status, n_err, errs = c.execute(
             "SELECT status, error_count, errors FROM ingest_runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
-    assert status == "partial" and n_err == 1 and errs[0]["source"] == "lsst:default"
+    assert status == "partial" and n_err == 2
+    assert [e["source"] for e in errs] == ["lsst:default", f"lsst:{LSST_STAMP_CLASSIFIER}:SN"]
 
 
 def test_all_sources_down_is_failed(ingest_dsn, make_client):
@@ -184,30 +186,171 @@ def test_abandoned_lease_is_reclaimed(ingest_dsn, make_client):
     assert statuses == ["failed", "success"]
 
 
-def test_page_cap_before_floor_is_partial(ingest_dsn, make_client):
-    full = load_fixture("lsst_objects.json")["items"]
+# -- catch-up window (docs/decisions.md #28) ----------------------------------
 
-    def handler(req):
+SAMPLE = Source("lsst", complete=False, max_pages=2)
+SN = Source("lsst", "clf", "SN", max_pages=3)
+VS = Source("lsst", "clf", "VS", max_pages=3)
+_oids = itertools.count(1)
+
+
+def night(newest, n, *, cls="SN"):
+    """n LSST list rows 0.01 d apart, newest first: a synthetic observing night."""
+    base = load_fixture("lsst_objects.json")["items"][0]
+    return [
+        dict(base, oid=next(_oids), lastmjd=round(newest - i * 0.01, 5), class_name=cls)
+        for i in range(n)
+    ]
+
+
+NIGHT1 = night(61343.3, 5)
+OLD = night(61342.3, 10)
+
+
+def serve_list(items, fail_class=None):
+    """Serve `items` like ALeRCE list_objects: newest first, paged, filtered by class_name."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path != "/object_api/list_objects":
             return httpx.Response(200, json=[])
-        page = int(req.url.params["page"])
-        items = [dict(it, oid=int(f"{page}{i:03d}"), lastmjd=61344.9) for i, it in enumerate(full)]
-        return httpx.Response(200, json={"items": items})
+        cls = req.url.params.get("class_name")
+        if cls is not None and cls == fail_class:
+            return httpx.Response(404)
+        sel = sorted(
+            (it for it in items if cls in (None, it["class_name"])),
+            key=lambda it: it["lastmjd"],
+            reverse=True,
+        )
+        size, page = int(req.url.params["page_size"]), int(req.url.params["page"])
+        return httpx.Response(200, json={"items": sel[(page - 1) * size : page * size]})
 
-    client, _ = make_client(handler)
-    store = Store.connect(ingest_dsn)
+    return handler
+
+
+def ingest_lsst(dsn, make_client, items, sources, *, now=NOW, fail_class=None, **cfg):
+    client, _ = make_client(serve_list(items, fail_class), max_attempts=1)
+    store = Store.connect(dsn)
     try:
-        res = run(
+        return run(
             store,
             client,
             surveys=("lsst",),
-            cfg=Config(page_size=len(full), max_pages_per_source=2),
-            now=NOW,
+            sources=sources,
+            cfg=Config(page_size=10, enrich_max_objects=0, **cfg),
+            now=now,
         )
     finally:
         store.close()
+
+
+def watermark(dsn, source):
+    store = Store.connect(dsn)
+    try:
+        return store.source_watermark(source)
+    finally:
+        store.close()
+
+
+def test_capped_sample_source_is_success(ingest_dsn, make_client):
+    # Production run 1: the unfiltered LSST stream overran the page cap every day.
+    items = night(61344.3, 60, cls="AGN") + night(61344.295, 4)
+    res = ingest_lsst(ingest_dsn, make_client, items, (SAMPLE, SN))
+    assert res.status == "success" and res.errors == []
+    assert (res.coverage[SAMPLE.key].outcome, res.coverage[SAMPLE.key].pages) == ("sample", 2)
+    assert res.coverage[SN.key].outcome == "complete"
+
+
+def test_cap_reached_without_gap_is_success(ingest_dsn, make_client):
+    assert ingest_lsst(ingest_dsn, make_client, OLD + NIGHT1, (SN,)).status == "success"
+    assert watermark(ingest_dsn, SN.key) == pytest.approx(61343.3)
+    # 15 new rows. Floor = 61343.3 - 1 d overlap, and the 3rd (last allowed) page gets
+    # below it: the cap was reached, but every row since the last watermark was read.
+    res = ingest_lsst(ingest_dsn, make_client, OLD + NIGHT1 + night(61344.3, 15), (SN,))
+    cov = res.coverage[SN.key]
+    assert res.status == "success", res.errors
+    assert (cov.outcome, cov.pages) == ("complete", 3)
+    assert cov.floor_mjd == pytest.approx(61342.3)
+    assert watermark(ingest_dsn, SN.key) == pytest.approx(61344.3)
+
+
+def test_cap_reached_with_possible_gap_is_partial_and_recorded(ingest_dsn, make_client):
+    ingest_lsst(ingest_dsn, make_client, OLD + NIGHT1, (SN,))
+    busy = OLD + NIGHT1 + night(61344.3, 25)  # 3 pages can't get back to 61342.3
+    res = ingest_lsst(ingest_dsn, make_client, busy, (SN,))
+    cov = res.coverage[SN.key]
     assert res.status == "partial"
-    assert any(e["source"] == "paging" for e in res.errors)
+    assert (cov.outcome, cov.pages) == ("capped", 3)
+    [gap] = res.errors
+    assert gap["source"] == SN.key
+    assert gap["gap_mjd"] == [pytest.approx(61342.3), pytest.approx(61343.26)]
+    with psycopg.connect(ingest_dsn) as c:
+        status, errs, stored = c.execute(
+            "SELECT status, errors, coverage FROM ingest_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert status == "partial" and errs == [gap]
+    assert stored[SN.key]["outcome"] == "capped" and stored[SN.key]["advances"] is True
+    # The gap is on record, so the window moves on and the next quiet run is clean.
+    again = ingest_lsst(ingest_dsn, make_client, busy, (SN,))
+    assert again.status == "success" and again.errors == []
+    assert again.coverage[SN.key].floor_mjd == pytest.approx(61343.3)
+
+
+def test_window_advances_across_consecutive_successful_runs(ingest_dsn, make_client):
+    items = OLD + NIGHT1
+    res = ingest_lsst(ingest_dsn, make_client, items, (SN,))
+    assert res.coverage[SN.key].floor_mjd == pytest.approx(61343.3 - 1.2)  # no watermark yet
+    prev = 61343.3
+    for day in range(3):
+        newest = 61344.3 + day
+        items = [*items, *night(newest, 8)]
+        res = ingest_lsst(ingest_dsn, make_client, items, (SN,), now=NOW + timedelta(days=day))
+        cov = res.coverage[SN.key]
+        assert res.status == "success", res.errors
+        assert cov.floor_mjd == pytest.approx(prev - 1.0)  # last watermark - overlap
+        assert cov.oldest_mjd < cov.floor_mjd and cov.pages == 2  # stopped just past it
+        assert watermark(ingest_dsn, SN.key) == pytest.approx(newest)
+        prev = newest
+    with psycopg.connect(ingest_dsn) as c:
+        statuses = [r[0] for r in c.execute("SELECT status FROM ingest_runs ORDER BY id")]
+    assert statuses == ["success"] * 4
+
+
+def test_failed_source_keeps_its_window_while_others_advance(ingest_dsn, make_client):
+    items = NIGHT1 + night(61343.3, 5, cls="VS")
+    ingest_lsst(ingest_dsn, make_client, items, (SN, VS))
+    items = items + night(61344.3, 5) + night(61344.3, 5, cls="VS")
+    res = ingest_lsst(ingest_dsn, make_client, items, (SN, VS), fail_class="SN")
+    assert res.status == "partial"
+    assert (res.coverage[SN.key].outcome, res.coverage[VS.key].outcome) == ("error", "complete")
+    assert watermark(ingest_dsn, SN.key) == pytest.approx(61343.3)  # re-covered next run
+    assert watermark(ingest_dsn, VS.key) == pytest.approx(61344.3)
+
+
+def test_future_lastmjd_does_not_lift_the_window(ingest_dsn, make_client):
+    glitch = night(61400.0, 1)  # 55 days ahead of the wall clock
+    res = ingest_lsst(ingest_dsn, make_client, glitch + NIGHT1, (SN,))
+    assert res.status == "success"
+    assert watermark(ingest_dsn, SN.key) == pytest.approx(61343.3)
+
+
+def test_stale_filtered_source_is_partial(ingest_dsn, make_client):
+    # A renamed classifier leaves its old list frozen, yet it still "completes" daily.
+    sn = Source("lsst", "clf", "SN", stale_after_days=2.0)
+    items = night(61344.3, 5, cls="AGN") + night(61341.0, 5)
+    res = ingest_lsst(ingest_dsn, make_client, items, (SAMPLE, sn))
+    assert res.status == "partial" and res.coverage[sn.key].outcome == "complete"
+    assert [e["source"] for e in res.errors] == [sn.key]
+    assert res.errors[0]["error"].startswith("stale: 3.3 d behind newest lsst row")
+
+
+def test_window_older_than_max_lookback_is_a_recorded_gap(ingest_dsn, make_client):
+    ingest_lsst(ingest_dsn, make_client, night(61330.0, 3), (SN,))
+    items = night(61330.0, 3) + night(61337.0, 3) + night(61344.3, 5)
+    res = ingest_lsst(ingest_dsn, make_client, items, (SN,))
+    [gap] = res.errors
+    assert res.status == "partial" and res.coverage[SN.key].outcome == "complete"
+    assert gap["gap_mjd"] == [pytest.approx(61329.0), pytest.approx(61337.3)]
+    assert watermark(ingest_dsn, SN.key) == pytest.approx(61344.3)  # clean from here on
 
 
 def test_bad_row_does_not_sink_run(ingest_dsn, make_client):
@@ -495,8 +638,8 @@ def test_unexpected_enrichment_error_is_isolated(ingest_dsn, make_client, monkey
 
 def test_enrichment_stops_on_budget_without_demoting_status(ingest_dsn, make_client):
     client, _ = make_client(alerce())
-    # Start + 1 LSST list page + 1st candidate, then budget expires before 2nd candidate
-    ticks = iter([0.0, 1.0, 2.0] + [500.0] * 20)
+    # Start + LSST sample page + LSST SN page + 1st candidate, then budget expires
+    ticks = iter([0.0, 1.0, 2.0, 3.0] + [500.0] * 20)
     store = Store.connect(ingest_dsn)
     try:
         res = run(

@@ -1,4 +1,4 @@
-# Sky Alerts
+# Sky Alerts App
 
 Astronomy alerts from the [ALeRCE](https://alerce.science) broker (ZTF + Vera C. Rubin / LSST), stored in Neon Postgres and served at **https://sky.henseler.app**.
 

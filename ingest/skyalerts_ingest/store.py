@@ -155,12 +155,13 @@ class Store:
         requests: int,
         errors: list[dict[str, Any]],
         duration_ms: int,
+        coverage: dict[str, Any] | None = None,
     ) -> None:
         self.conn.execute(
             """UPDATE ingest_runs SET finished_at = now(), status = %s, objects_seen = %s,
                    objects_upserted = %s, classifications_upserted = %s,
                    objects_enriched = %s, detections_upserted = %s, requests = %s,
-                   error_count = %s, errors = %s, duration_ms = %s
+                   error_count = %s, errors = %s, duration_ms = %s, coverage = %s
                WHERE id = %s""",
             (
                 status,
@@ -173,19 +174,27 @@ class Store:
                 len(errors),
                 Jsonb(errors[:50]),  # cap stored detail
                 duration_ms,
+                Jsonb(coverage or {}),
                 run_id,
             ),
         )
 
-    def last_success_mjd_floor(self) -> float | None:
-        """Start time (as MJD) of the last fully successful run. Partial runs don't
-        advance the catch-up window, so their gaps get re-fetched next time."""
+    def source_watermark(self, source: str) -> float | None:
+        """Newest lastmjd the source saw in the last finished run that advanced its window.
+
+        Data time, not wall clock: if ALeRCE stalls, the window waits for it. Runs that
+        failed, were abandoned, or didn't advance this source (budget hit, source error)
+        are skipped, so their unfetched range is re-covered next time."""
         row = self.conn.execute(
-            "SELECT extract(epoch FROM max(started_at)) FROM ingest_runs WHERE status = 'success'"
+            """SELECT (coverage -> %s ->> 'newest_mjd')::float8 FROM ingest_runs
+                WHERE status IN ('success', 'partial')
+                  AND (coverage -> %s ->> 'advances')::boolean
+                ORDER BY id DESC LIMIT 1""",
+            (source, source),
         ).fetchone()
         if row is None or row[0] is None:
             return None
-        return float(row[0]) / 86400.0 + 40587.0
+        return float(row[0])
 
     # -- data -------------------------------------------------------------
     def upsert_batch(

@@ -42,6 +42,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <nav aria-label="Main">
               <Link href="/">Events</Link>
               <Link href="/stats">Stats</Link>
+              <a href="/skyalerts-explainer.html">How It Works</a>
             </nav>
           </div>
         </header>
