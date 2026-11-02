@@ -105,8 +105,29 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
       - Offset paging over large `lastmjd` tie groups can still reorder rows between pages. A Rubin visit puts hundreds of rows on one timestamp. This risk predates this change.
     - **Reversible:** sources, caps and overlap are constants in `ingest/skyalerts_ingest/ingest.py`, and the `coverage` column is additive. **OWNER:** sign off on complete coverage meaning tier-1 transient classes.
 
+## 2026-11-02 — Hardening
+
+29. **2026-11-02 · Vercel Firewall on `skyalerts-web`: rate limit and challenge on `/api/auth/`; Bot Protection log-only site-wide ·** This covers the SPEC §Security firewall item.
+    - **Rules**, added and published by OWNER in the dashboard:
+      1. *Rate limit admin sign-in:* path starts with `/api/auth/`; fixed window, 60 s, 10 requests per IP, then deny (429). One sign-in uses 2–4 requests (start, GitHub's callback, and challenge reloads).
+      2. *Challenge admin sign-in:* same path, Vercel Security Checkpoint. OWNER confirmed GitHub sign-in still works through it.
+      3. *Bot Protection* (managed ruleset): **log**.
+    - **Why this scope:** `/api/auth/` is every API route the web app has (`github/start`, `github/callback`). Admin mutations are server actions on `/admin`, behind the session and CSRF checks (#24). The ingest and digest endpoints live in their own projects behind bearer secrets (#26).
+    - **Deviation from SPEC ("bot protection on public pages"):** challenge mode would block link previews. iMessage fetches a preview from the sender's own device with a crawler user agent, which Vercel's verified-bot check can't confirm. Public pages are read-only, cached for 10 minutes, and query as `skyalerts_ro`, so a scraper costs function time, not data. Log mode shows bot traffic without breaking sharing. Switch to challenge if the logs show abuse.
+    - **Verified live** (2026-11-02):
+      - `/api/auth/github/start` answers with the Security Checkpoint (`x-vercel-mitigated: challenge`).
+      - `/`, `/trends`, `/about` and `/opengraph-image` return 200, including for a `facebookexternalhit`/`Twitterbot` user agent.
+      - The rate limit wasn't tripped on purpose, because it would lock the owner's own IP out for a minute.
+    - **Operational note:** the Vercel API (and so the connector) returns 404 "Seawall Config not found" for this project's firewall config, even after publishing. Firewall changes go through the dashboard.
+    - **Reversible:** dashboard toggles. Widen both rules to `/api/` if the web app gains a non-auth API route. **OWNER:** sign off on log-only bot protection.
+
 ## Pending / OWNER
 
 - ~~Ingest scheduler~~ → decided, see #13.
 - ~~GitHub user ID for /admin allowlist~~ → `16056018` (`justadakaje`), confirmed by OWNER 2026-11-01.
 - **Complete coverage = tier-1 transient classes; the rest is a newest-first sample** (#28). Confirm, or name more classes (each costs pages per night).
+- **Bot Protection log-only on public pages** (#29). Confirm, or switch to challenge (which costs link previews).
+- **Security gate gaps** (`docs/security-checklist.md`, verified 2026-11-02):
+  - In the `main` ruleset, require linear history, conversation resolution, and the `dependency-review` and `analyze (javascript-typescript)` checks.
+  - Confirm the Resend key is "Sending access" for `sky.henseler.app` only.
+  - Wire alerts for ingest failure, error spikes and `admin_sign_in`.
