@@ -39,7 +39,8 @@ ROUTES: dict[str, tuple[str, str, str]] = {
 
 
 def _json(start: StartResponse, status: str, body: dict[str, Any]) -> list[bytes]:
-    start(status, HEADERS)
+    # A fresh list per response: servers may append to it (wsgiref adds Content-Length).
+    start(status, list(HEADERS))
     return [json.dumps(body).encode()]
 
 
