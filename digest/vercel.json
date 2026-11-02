@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/digest", "schedule": "0 14 * * 1" }
+  ],
+  "functions": {
+    "skyalerts_digest/web.py": {
+      "maxDuration": 60,
+      "excludeFiles": "{tests/**,out/**,.venv/**,.ruff_cache/**,.pytest_cache/**}"
+    }
+  }
+}
