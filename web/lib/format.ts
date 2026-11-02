@@ -1,5 +1,9 @@
 // Display formatting. Everything renders in UTC so server output is deterministic.
 
+import { mjdToDate } from './astro'
+import { classInfo } from './classes'
+import type { Survey } from './filters'
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 export function formatUtc(date: Date): string {
@@ -39,4 +43,24 @@ export function formatCount(n: number): string {
   if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}K`
   if (n < 1_000_000) return `${Math.round(n / 1000)}K`
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+}
+
+export interface ObjectShareInput {
+  survey: Survey
+  topClass: string | null
+  probability: number | null
+  firstmjd: number | null
+}
+
+/** Concise share/meta summary, e.g. "Supernova · 85% confidence · Rubin (LSST) · first seen 2026-10-31". */
+export function formatObjectDescription(o: ObjectShareInput): string {
+  const parts = [classInfo(o.topClass).label]
+  if (o.probability !== null && Number.isFinite(o.probability)) {
+    parts.push(`${formatProbability(o.probability)} confidence`)
+  }
+  parts.push(o.survey === 'lsst' ? 'Rubin (LSST)' : 'ZTF')
+  if (o.firstmjd !== null && Number.isFinite(o.firstmjd)) {
+    parts.push(`first seen ${mjdToDate(o.firstmjd).toISOString().slice(0, 10)}`)
+  }
+  return parts.join(' · ')
 }

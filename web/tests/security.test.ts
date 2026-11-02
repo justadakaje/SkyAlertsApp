@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { securityHeaders } from '@/next.config'
+import robots from '@/app/robots'
+import sitemap from '@/app/sitemap'
+import nextConfig, { explainerCsp, securityHeaders } from '@/next.config'
 import { buildCsp } from '@/proxy'
 
 describe('content security policy', () => {
@@ -17,6 +19,45 @@ describe('content security policy', () => {
 
   it('allows eval only in development', () => {
     expect(buildCsp('n', true)).toContain("'unsafe-eval'")
+  })
+
+  it('locks down the static explainer page with no network egress or framing', async () => {
+    const directives = Object.fromEntries(
+      explainerCsp.split('; ').map((d) => {
+        const [name, ...rest] = d.split(' ')
+        return [name, rest.join(' ')]
+      }),
+    )
+    expect(directives['default-src']).toBe("'none'")
+    expect(directives['connect-src']).toBe("'none'")
+    expect(directives['frame-ancestors']).toBe("'none'")
+    expect(directives['base-uri']).toBe("'none'")
+    expect(directives['form-action']).toBe("'none'")
+
+    const rules = await nextConfig.headers!()
+    const explainerRule = rules.find((r) => r.source === '/skyalerts-explainer.html')
+    expect(explainerRule?.headers).toEqual([{ key: 'Content-Security-Policy', value: explainerCsp }])
+  })
+})
+
+describe('robots and sitemap', () => {
+  it('allows public routes and disallows /admin and /api/', () => {
+    const r = robots()
+    expect(r.rules).toEqual({
+      userAgent: '*',
+      allow: '/',
+      disallow: ['/admin', '/api/'],
+    })
+    expect(r.sitemap).toBe('https://sky.henseler.app/sitemap.xml')
+  })
+
+  it('lists /, /stats, and /about with absolute URLs on https://sky.henseler.app', () => {
+    const urls = sitemap().map((entry) => entry.url)
+    expect(urls).toEqual([
+      'https://sky.henseler.app/',
+      'https://sky.henseler.app/stats',
+      'https://sky.henseler.app/about',
+    ])
   })
 })
 

@@ -10,14 +10,28 @@ import { formatDec, formatRa, mjdToDate } from '@/lib/astro'
 import { classInfo } from '@/lib/classes'
 import { getObjectPage } from '@/lib/data'
 import { isSurvey, isValidOid } from '@/lib/filters'
-import { formatAgo, formatProbability, formatUtc } from '@/lib/format'
+import { formatAgo, formatObjectDescription, formatProbability, formatUtc } from '@/lib/format'
 import { buildCurve } from '@/lib/lightcurve'
 
 type Params = Promise<{ survey: string; oid: string }>
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { survey, oid } = await params
-  return isSurvey(survey) && isValidOid(survey, oid) ? { title: oid } : {}
+  if (!isSurvey(survey) || !isValidOid(survey, oid)) return {}
+  try {
+    const data = await getObjectPage(survey, oid)
+    if (!data) return { title: oid }
+    const { object } = data
+    const title = `${classInfo(object.topClass).label} · ${object.oid}`
+    const description = formatObjectDescription(object)
+    return {
+      title,
+      description,
+      openGraph: { title, description },
+    }
+  } catch {
+    return { title: oid }
+  }
 }
 
 export default async function ObjectPage({ params }: { params: Params }) {

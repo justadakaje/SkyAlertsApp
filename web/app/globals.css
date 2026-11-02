@@ -738,6 +738,70 @@ tbody th {
   font-weight: 600;
 }
 
+/* About page */
+.about-facts {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-top: 12px;
+}
+
+.about-facts > div {
+  background: var(--surface-2);
+}
+
+.about-facts h3 {
+  font-size: 1rem;
+  margin-bottom: 6px;
+}
+
+.about-facts p:last-child {
+  margin-bottom: 0;
+}
+
+.group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.group-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+
+.class-dl {
+  margin: 10px 0 0;
+}
+
+.class-item {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.class-item dd {
+  margin: 2px 0 0;
+}
+
+.credits-list {
+  margin: 8px 0 12px;
+  padding-left: 20px;
+  color: var(--text-2);
+}
+
+.credits-list li {
+  margin-bottom: 8px;
+}
+
 /* Admin */
 :root {
   /* Status colours are fixed (never themed) and always paired with an icon + label. */

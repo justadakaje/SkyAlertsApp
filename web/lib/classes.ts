@@ -11,12 +11,32 @@ export interface ClassInfo {
 }
 
 // Order matches the categorical colour slots (validated as adjacent pairs in stacks).
-export const GROUPS: { id: ClassGroup; label: string }[] = [
-  { id: 'stochastic', label: 'Active galaxies' },
-  { id: 'transient', label: 'Explosions & outbursts' },
-  { id: 'variable', label: 'Variable stars' },
-  { id: 'solar', label: 'Solar system' },
-  { id: 'other', label: 'Other & unclassified' },
+export const GROUPS: { id: ClassGroup; label: string; blurb: string }[] = [
+  {
+    id: 'stochastic',
+    label: 'Active galaxies',
+    blurb: 'Supermassive black holes and young stars whose brightness wanders without a fixed rhythm.',
+  },
+  {
+    id: 'transient',
+    label: 'Explosions & outbursts',
+    blurb: 'One-off cataclysms and sudden flares: exploding stars, black-hole tidal disruptions, and novae.',
+  },
+  {
+    id: 'variable',
+    label: 'Variable stars',
+    blurb: 'Stars that pulse or eclipse on a repeating schedule.',
+  },
+  {
+    id: 'solar',
+    label: 'Solar system',
+    blurb: 'Asteroids and other nearby bodies caught moving across the field between exposures.',
+  },
+  {
+    id: 'other',
+    label: 'Other & unclassified',
+    blurb: 'Host-galaxy position tags, unclassified alerts, and image-subtraction artifacts.',
+  },
 ]
 
 const KNOWN: Record<string, Omit<ClassInfo, 'name'>> = {
@@ -65,4 +85,16 @@ export function classInfo(name: string | null): ClassInfo {
 
 export function groupOf(name: string | null): ClassGroup {
   return classInfo(name).group
+}
+
+/** Known classes in a display group, deduplicated by plain-English label. */
+export function classesByGroup(group: ClassGroup): ClassInfo[] {
+  const seen = new Set<string>()
+  const out: ClassInfo[] = []
+  for (const [name, info] of Object.entries(KNOWN)) {
+    if (info.group !== group || seen.has(info.label)) continue
+    seen.add(info.label)
+    out.push({ name, ...info })
+  }
+  return out
 }
