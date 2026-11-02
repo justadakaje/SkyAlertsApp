@@ -105,9 +105,25 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
       - Offset paging over large `lastmjd` tie groups can still reorder rows between pages. A Rubin visit puts hundreds of rows on one timestamp. This risk predates this change.
     - **Reversible:** sources, caps and overlap are constants in `ingest/skyalerts_ingest/ingest.py`, and the `coverage` column is additive. **OWNER:** sign off on complete coverage meaning tier-1 transient classes.
 
+## 2026-11-02 — Hardening
+
+29. **2026-11-02 · Vercel Firewall on `skyalerts-web`: rate limit and challenge on `/api/auth/`; Bot Protection log-only site-wide ·** This covers the SPEC §Security firewall item.
+    - **Rules**, added and published by OWNER in the dashboard:
+      1. *Rate limit admin sign-in:* path starts with `/api/auth/`; fixed window, 60 s, 10 requests per IP, then deny (429). One sign-in uses 2–4 requests (start, GitHub's callback, and challenge reloads).
+      2. *Challenge admin sign-in:* same path, Vercel Security Checkpoint. OWNER confirmed GitHub sign-in still works through it.
+      3. *Bot Protection* (managed ruleset): **log**.
+    - **Why this scope:** `/api/auth/` is every API route the web app has (`github/start`, `github/callback`). Admin mutations are server actions on `/admin`, behind the session and CSRF checks (#24). The ingest and digest endpoints live in their own projects behind bearer secrets (#26).
+    - **Deviation from SPEC ("bot protection on public pages"):** challenge mode would block link previews. iMessage fetches a preview from the sender's own device with a crawler user agent, which Vercel's verified-bot check can't confirm. Public pages are read-only, cached for 10 minutes, and query as `skyalerts_ro`, so a scraper costs function time, not data. Log mode shows bot traffic without breaking sharing. Switch to challenge if the logs show abuse.
+    - **Verified live** (2026-11-02):
+      - `/api/auth/github/start` answers with the Security Checkpoint (`x-vercel-mitigated: challenge`).
+      - `/`, `/trends`, `/about` and `/opengraph-image` return 200, including for a `facebookexternalhit`/`Twitterbot` user agent.
+      - The rate limit wasn't tripped on purpose, because it would lock the owner's own IP out for a minute.
+    - **Operational note:** the Vercel API (and so the connector) returns 404 "Seawall Config not found" for this project's firewall config, even after publishing. Firewall changes go through the dashboard.
+    - **Reversible:** dashboard toggles. Widen both rules to `/api/` if the web app gains a non-auth API route. **OWNER:** sign off on log-only bot protection.
+
 ## 2026-11-01 — Solar System (identification)
 
-29. **2026-11-01 · Identify `top_class = 'asteroid'` alerts with IMCCE SkyBoT in a separate daily cron ·** Objects classified as `asteroid` by ALeRCE are ML candidates with no Solar System designation attached in the list payload (`ssObjectId = 0` on LSST, `ssnamenr` null on ZTF).
+30. **2026-11-01 · Identify `top_class = 'asteroid'` alerts with IMCCE SkyBoT in a separate daily cron ·** Objects classified as `asteroid` by ALeRCE are ML candidates with no Solar System designation attached in the list payload (`ssObjectId = 0` on LSST, `ssnamenr` null on ZTF).
     - **Why IMCCE SkyBoT instead of JPL `sb_ident`:** live probing showed JPL `sb_ident` took **68 s for a single cone-search query**, whereas SkyBoT (`ssp.imcce.fr/webservices/skybot/api/conesearch.php`, `-mime=text -output=basic`, MPC codes `I41` for ZTF and `X05` for Rubin/LSST) responds in 2–16 s per query and verified `ZTF26acdjxpl` as `(9537) Nolan` at 3.11".
     - **Search radius and match threshold:** query with `-rd=0.003` deg (10.8") at `(meanra, meandec, firstmjd + 2400000.5)` and accept the closest object only when separation `d <= 10"`. Empty 200 responses and separations `> 10"` are stored as `no_match` in `sso_identifications` (migration 0006) so each object is queried once; `error` rows are retried after 1 day. ZTF candidates are prioritised ahead of LSST, then by `top_probability DESC, lastmjd DESC`.
     - **Separate cron (`30 13 * * *`, `GET /api/cron/identify` and `POST /api/manual/identify`):** keeping SkyBoT calls in their own job (`IDENTIFY_MAX=30`, `IDENTIFY_TIME_BUDGET_S=240`, ≥1 s between requests, 30 s per-request timeout, and no new query starts unless a full timeout still fits in the budget, so a run ends inside Vercel's 300 s) leaves the 13:00 ingest run's 240 s budget completely untouched.
@@ -119,3 +135,8 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 - ~~Ingest scheduler~~ → decided, see #13.
 - ~~GitHub user ID for /admin allowlist~~ → `16056018` (`justadakaje`), confirmed by OWNER 2026-11-01.
 - **Complete coverage = tier-1 transient classes; the rest is a newest-first sample** (#28). Confirm, or name more classes (each costs pages per night).
+- **Bot Protection log-only on public pages** (#29). Confirm, or switch to challenge (which costs link previews).
+- **Security gate gaps** (`docs/security-checklist.md`, verified 2026-11-02):
+  - In the `main` ruleset, require linear history, conversation resolution, and the `dependency-review` and `analyze (javascript-typescript)` checks.
+  - Confirm the Resend key is "Sending access" for `sky.henseler.app` only.
+  - Wire alerts for ingest failure, error spikes and `admin_sign_in`.
