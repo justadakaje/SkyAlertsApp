@@ -4,7 +4,7 @@
 
 Queries SkyBoT cone search at each asteroid candidate's (meanra, meandec, firstmjd)
 with radius 0.003 deg (10.8") and stores the closest match within 10". See
-docs/decisions.md #29.
+docs/decisions.md #30.
 """
 
 from __future__ import annotations

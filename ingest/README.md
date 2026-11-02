@@ -43,4 +43,4 @@ DATABASE_URL=<skyalerts_ingest dsn> uv run python -m skyalerts_ingest.sso --max 
 
 ## Asteroid identification (`skyalerts_ingest.sso`)
 - Queries IMCCE SkyBoT (`conesearch.php`, `-rd=0.003` deg / 10.8", MPC codes `I41` for ZTF and `X05` for LSST) at `(meanra, meandec, firstmjd)` for up to `IDENTIFY_MAX` (30) `top_class = 'asteroid'` objects that have no `sso_identifications` row or whose `error` row is older than 1 day (ZTF first, then `top_probability DESC`, `lastmjd DESC`).
-- Stores the closest match in `sso_identifications` when separation `d <= 10"` (`status = 'matched'`), otherwise `no_match` (or `error` on upstream failure, without echoing upstream bodies). Stops cleanly when `IDENTIFY_TIME_BUDGET_S` (240 s) is reached. See `docs/decisions.md` #29.
+- Stores the closest match in `sso_identifications` when separation `d <= 10"` (`status = 'matched'`), otherwise `no_match` (or `error` on upstream failure, without echoing upstream bodies). Stops cleanly when `IDENTIFY_TIME_BUDGET_S` (240 s) is reached. See `docs/decisions.md` #30.

@@ -1,6 +1,6 @@
 -- 0006_sso_identifications: Solar System object (asteroid) identifications from IMCCE SkyBoT.
 -- Queries asteroid alerts at (meanra, meandec, firstmjd) and stores the closest match within 10".
--- See docs/decisions.md #29.
+-- See docs/decisions.md #30.
 
 CREATE TABLE sso_identifications (
     survey            text             NOT NULL CHECK (survey IN ('ztf', 'lsst')),
