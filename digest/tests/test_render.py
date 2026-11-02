@@ -16,6 +16,7 @@ from skyalerts_digest.classes import (
     class_info,
     group_of,
 )
+from skyalerts_digest.podcast import render_podcast
 from skyalerts_digest.render import render_html, render_markdown
 from skyalerts_digest.select import (
     Digest,
@@ -254,3 +255,196 @@ def test_render_empty_week_shows_quiet_week_message() -> None:
     assert "Headliners" not in html_out
     assert "Brightest new" not in html_out
     assert "42" in md and "42" in html_out
+
+
+def test_render_podcast_content_ordering_and_show_notes() -> None:
+    headliner1 = DigestObject(
+        survey="ztf",
+        oid="ZTF26top",
+        top_class="SNIa",
+        top_probability=0.852,
+        firstmjd=61340.0,
+        lastmjd=61344.5,
+        ndet=7,
+    )
+    headliner2 = DigestObject(
+        survey="lsst",
+        oid="313708285401235521",
+        top_class="KN",
+        top_probability=0.739,
+        firstmjd=61341.0,
+        lastmjd=61344.2,
+        ndet=1,
+    )
+    bright = DigestObject(
+        survey="ztf",
+        oid="ZTF26bright",
+        top_class="TDE",
+        top_probability=0.91,
+        firstmjd=61341.0,
+        lastmjd=61344.8,
+        ndet=12,
+        peak_mag=15.40,
+        peak_band="r",
+    )
+    asteroid = DigestObject(
+        survey="ztf",
+        oid="ZTF26rock",
+        top_class="asteroid",
+        top_probability=0.99,
+        firstmjd=61342.0,
+        lastmjd=61342.1,
+        ndet=3,
+    )
+    digest = Digest(
+        week_start=WEEK_START,
+        week_end=WEEK_END,
+        start_mjd=START_MJD,
+        end_mjd=END_MJD,
+        headliners=(headliner1, headliner2),
+        brightest=(bright, headliner1),
+        solar_system=SolarSystemSection(asteroid_count=3, examples=(asteroid,)),
+        stats=_stats(
+            transient=3,
+            solar=3,
+            total_objects=250,
+            total_detections=3400,
+        ),
+    )
+
+    out = render_podcast(digest)
+    assert out.startswith("# What the sky did this week · Oct 25\u2013Nov 1\n")
+
+    # Section ordering
+    sections = [
+        "## Cold open",
+        "## Headliners",
+        "## Brightest new",
+        "## Solar-system roundup",
+        "## By the numbers",
+        "## Outro",
+        "[Show notes]",
+    ]
+    indices = [out.index(s) for s in sections]
+    assert indices == sorted(indices)
+
+    # Cold open references top headliner & spoken confidence
+    assert "ZTF26top" in out.split("## Headliners")[0]
+    assert "about 85 percent" in out
+    assert "about 74 percent" in out
+    assert "about 91 percent" in out
+
+    # Headliner ordering and plain-English blurbs
+    hl_section = out.split("## Headliners")[1].split("## Brightest new")[0]
+    assert hl_section.index("ZTF26top") < hl_section.index("313708285401235521")
+    assert "A white dwarf blown apart." in hl_section
+    assert "The glow left behind when two neutron stars merge." in hl_section
+    assert "across 7 detections" in hl_section
+    assert "across 1 detection." in hl_section
+
+    # Brightest new section
+    br_section = out.split("## Brightest new")[1].split("## Solar-system roundup")[0]
+    assert "ZTF26bright" in br_section
+    assert "magnitude 15.40 in the r band" in br_section
+    assert "A star torn apart by a supermassive black hole." in br_section
+
+    # Solar-system roundup
+    ss_section = out.split("## Solar-system roundup")[1].split("## By the numbers")[0]
+    assert "3 moving solar-system asteroids were picked up this week." in ss_section
+    assert "A solar-system body caught moving across the field." in ss_section
+    assert "ZTF26rock (ZTF)" in ss_section
+
+    # By the numbers
+    num_section = out.split("## By the numbers")[1].split("## Outro")[0]
+    assert "New objects this week: 6" in num_section
+    assert "Explosions & outbursts: 3" in num_section
+    assert "Solar system: 3" in num_section
+    assert "Total objects tracked: 250" in num_section
+    assert "Light-curve points stored: 3400" in num_section
+
+    # Outro & Show notes plain links (deduplicated)
+    outro_and_notes = out.split("## Outro")[1]
+    assert "sky.henseler.app" in outro_and_notes
+    notes_section = out.split("[Show notes]")[1]
+    assert "https://sky.henseler.app/objects/ztf/ZTF26top" in notes_section
+    assert "https://sky.henseler.app/objects/lsst/313708285401235521" in notes_section
+    assert "https://sky.henseler.app/objects/ztf/ZTF26bright" in notes_section
+    assert "https://sky.henseler.app/objects/ztf/ZTF26rock" in notes_section
+    assert notes_section.count("https://sky.henseler.app/objects/ztf/ZTF26top") == 1
+    assert "<" not in out and ">" not in out
+
+
+def test_render_podcast_quiet_week() -> None:
+    empty = Digest(
+        week_start=WEEK_START,
+        week_end=WEEK_END,
+        start_mjd=START_MJD,
+        end_mjd=END_MJD,
+        headliners=(),
+        brightest=(),
+        solar_system=SolarSystemSection(asteroid_count=0, examples=()),
+        stats=_stats(total_objects=42, total_detections=300),
+    )
+    out = render_podcast(empty)
+    assert out.startswith("# What the sky did this week · Oct 25\u2013Nov 1\n")
+    assert "quiet" in out.lower()
+    assert "## Cold open" in out
+    assert "## Headliners" in out
+    assert "## Brightest new" in out
+    assert "## Solar-system roundup" in out
+    assert "## By the numbers" in out
+    assert "## Outro" in out
+    assert "[Show notes]" in out
+    assert "sky.henseler.app" in out
+
+
+def test_render_podcast_strips_markdown_injection_and_raw_html() -> None:
+    injected_link = DigestObject(
+        survey="ztf",
+        oid="ZTF26](http://evil.example/pwn)",
+        top_class="# Injected Heading\n[click](http://evil.example)",
+        top_probability=0.88,
+        firstmjd=61340.0,
+        lastmjd=61344.0,
+        ndet=4,
+        peak_mag=16.0,
+        peak_band="*bold*_<script>",
+    )
+    injected_heading = DigestObject(
+        survey="lsst",
+        oid="# x",
+        top_class="<script>alert(1)</script>",
+        top_probability=0.75,
+        firstmjd=61341.0,
+        lastmjd=61343.0,
+        ndet=2,
+    )
+    digest = Digest(
+        week_start=WEEK_START,
+        week_end=WEEK_END,
+        start_mjd=START_MJD,
+        end_mjd=END_MJD,
+        headliners=(injected_link, injected_heading),
+        brightest=(injected_link,),
+        solar_system=SolarSystemSection(asteroid_count=1, examples=(injected_heading,)),
+        stats=_stats(other=2, total_objects=10, total_detections=20),
+    )
+
+    out = render_podcast(digest)
+    assert "](http://evil" not in out
+    assert "(http://evil" not in out
+    assert "<script>" not in out
+    assert "</script>" not in out
+    assert "<" not in out and ">" not in out
+
+    # No injected headings beyond the expected template headings
+    heading_lines = [line for line in out.splitlines() if line.startswith("#")]
+    assert heading_lines == [
+        "# What the sky did this week · Oct 25\u2013Nov 1",
+        "## Cold open",
+        "## Headliners",
+        "## Brightest new",
+        "## Solar-system roundup",
+        "## By the numbers",
+        "## Outro",
+    ]

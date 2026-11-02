@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ import httpx
 import pytest
 
 from skyalerts_digest.config import DEFAULT_DIGEST_FROM, ConfigError, DigestConfig
+from skyalerts_digest.podcast import render_podcast
 from skyalerts_digest.select import (
     Digest,
     DigestObject,
@@ -209,7 +211,7 @@ def test_send_digest_request_shape() -> None:
     assert req.headers["Idempotency-Key"] == "digest-2026-11-01"
 
     body = json.loads(req.content.decode())
-    assert set(body.keys()) == {"from", "to", "subject", "html", "text"}
+    assert set(body.keys()) == {"from", "to", "subject", "html", "text", "attachments"}
     assert body["from"] == "Sky Alerts <digest@sky.henseler.app>"
     assert body["to"] == ["reader@example.com", "second@example.test"]
     assert body["subject"] == "What the sky did this week · Oct 25\u2013Nov 1 (2 new explosions)"
@@ -217,6 +219,13 @@ def test_send_digest_request_shape() -> None:
     assert "ZTF26hl0" in body["html"]
     assert "# Sky Alerts Weekly Digest" in body["text"]
     assert "ZTF26hl0" in body["text"]
+
+    attachments = body["attachments"]
+    assert isinstance(attachments, list) and len(attachments) == 1
+    assert attachments[0]["filename"] == "sky-this-week-2026-11-01.md"
+    decoded_podcast = base64.b64decode(attachments[0]["content"]).decode("utf-8")
+    assert decoded_podcast == render_podcast(digest)
+    assert "# What the sky did this week · Oct 25\u2013Nov 1" in decoded_podcast
 
 
 def test_send_digest_retries_once_on_503_and_honours_retry_after() -> None:
