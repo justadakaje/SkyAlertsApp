@@ -321,3 +321,14 @@ def test_preview_route_failure_returns_500_without_leaking(
     assert s2.startswith("500")
     assert b2 == {"status": "failed"}
     assert DB_URL not in json.dumps(b2)
+
+
+def test_shared_headers_are_not_mutated_between_responses():
+    # wsgiref appends Content-Length to the list it is given; a shared module-level
+    # list would leak the first response's length into later ones and truncate them.
+    def start_response(status, headers):
+        headers.append(("Content-Length", "1"))
+
+    for _ in range(2):
+        list(web.app({"PATH_INFO": "/nope", "REQUEST_METHOD": "GET"}, start_response))
+    assert all(name != "Content-Length" for name, _ in web.HEADERS)
