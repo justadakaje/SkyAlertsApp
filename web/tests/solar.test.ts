@@ -1,11 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   CONSTELLATIONS,
   formatPeriod,
   formatRotation,
+  HORIZONS_GIVE_UP_AFTER,
   horizonsUrl,
   jplUrl,
+  loadEphemerides,
   orbitviewerUrl,
   parseHorizons,
   SOLAR_BODIES,
@@ -43,6 +45,43 @@ describe('parseHorizons', () => {
 
   it('accepts a missing magnitude', () => {
     expect(parseHorizons(ERIS.replace('18.569', 'n.a.'))?.mag).toBeNull()
+  })
+})
+
+describe('loadEphemerides', () => {
+  const eph = parseHorizons(ERIS)
+
+  it('gives up early when JPL looks down, and throws so nothing is cached', async () => {
+    const lookup = vi.fn(async () => {
+      throw new Error('timeout')
+    })
+    await expect(loadEphemerides(lookup)).rejects.toThrow('Horizons unavailable')
+    expect(lookup).toHaveBeenCalledTimes(HORIZONS_GIVE_UP_AFTER)
+  })
+
+  it('counts null results as failures too', async () => {
+    const lookup = vi.fn(async () => null)
+    await expect(loadEphemerides(lookup)).rejects.toThrow('Horizons unavailable')
+    expect(lookup).toHaveBeenCalledTimes(HORIZONS_GIVE_UP_AFTER)
+  })
+
+  it('keeps going past failures once a lookup has succeeded', async () => {
+    const failing = new Set(['pluto', 'eris', 'gonggong'])
+    const lookup = vi.fn(async (b: (typeof SOLAR_BODIES)[number]) => {
+      if (failing.has(b.id)) throw new Error('timeout')
+      return eph
+    })
+    const out = await loadEphemerides(lookup)
+    expect(lookup).toHaveBeenCalledTimes(SOLAR_BODIES.length)
+    for (const b of SOLAR_BODIES) expect(out[b.id]).toEqual(failing.has(b.id) ? null : eph)
+  })
+
+  it('recovers when only the first lookup fails', async () => {
+    const lookup = vi.fn(async (b: (typeof SOLAR_BODIES)[number]) => (b.id === 'ceres' ? null : eph))
+    const out = await loadEphemerides(lookup)
+    expect(lookup).toHaveBeenCalledTimes(SOLAR_BODIES.length)
+    expect(out.ceres).toBeNull()
+    expect(out.pluto).toEqual(eph)
   })
 })
 

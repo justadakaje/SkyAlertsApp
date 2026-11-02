@@ -306,6 +306,35 @@ export function parseHorizons(result: string): Ephemeris | null {
   return { ra, dec, mag, distanceAu, elongation, constellation }
 }
 
+// When the first lookups all fail, JPL is treated as down and the rest are skipped, so an
+// outage costs a page view two timeouts instead of one per body. A failure after a
+// success is per body and only blanks that row.
+export const HORIZONS_GIVE_UP_AFTER = 2
+
+// Looks up each body in turn (one at a time, to stay polite to JPL). A body whose lookup
+// returns null or throws is null. Throws when nothing succeeded, so callers don't cache it.
+export async function loadEphemerides(
+  lookup: (b: SolarBody) => Promise<Ephemeris | null>,
+  bodies: readonly SolarBody[] = SOLAR_BODIES,
+): Promise<Record<string, Ephemeris | null>> {
+  const out: Record<string, Ephemeris | null> = {}
+  let ok = 0
+  let failed = 0
+  for (const b of bodies) {
+    if (ok === 0 && failed >= HORIZONS_GIVE_UP_AFTER) break
+    out[b.id] = null
+    try {
+      out[b.id] = await lookup(b)
+    } catch {
+      // timeout or network error: leave this body without a position
+    }
+    if (out[b.id]) ok++
+    else failed++
+  }
+  if (ok === 0) throw new Error('Horizons unavailable')
+  return out
+}
+
 export function horizonsUrl(number: number, day: string): string {
   const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
   const p = new URLSearchParams({
