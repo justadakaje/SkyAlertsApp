@@ -5,6 +5,7 @@ description = "Weekly Sky Alerts digest: event selection and rendering"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
+  "httpx>=0.28,<0.29",
   # Postgres driver (binary wheels; no system libpq needed). Same driver the ingest job uses.
   "psycopg[binary]>=3.3,<3.4",
 ]
@@ -15,8 +16,18 @@ dev = [
   "ruff>=0.17.3,<0.18",
 ]
 
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["skyalerts_digest"]
+
 [tool.uv]
-package = false
+package = true
+
+[tool.vercel]
+entrypoint = "skyalerts_digest.web:app"
 
 [tool.ruff]
 line-length = 100

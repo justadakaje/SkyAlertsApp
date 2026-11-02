@@ -1,6 +1,6 @@
 # `skyalerts_digest` — Weekly Sky Alerts Digest
 
-Phase 3 groundwork for the weekly Sky Alerts digest. Selects notable events from Postgres over a 7-day window and renders plain-English Markdown and HTML summaries (no email delivery yet).
+Phase 3 weekly Sky Alerts digest: selects notable events from Postgres over a 7-day window, renders plain-English Markdown and HTML summaries, and delivers the email through Resend from `sky.henseler.app`.
 
 ## Modules
 
@@ -12,17 +12,47 @@ Phase 3 groundwork for the weekly Sky Alerts digest. Selects notable events from
   - **Week in numbers:** new objects by class group, total non-artifact objects tracked, and light-curve points stored.
   - `bogus` artifacts are excluded everywhere.
 - `skyalerts_digest/render.py`: `render_markdown(digest)` and `render_html(digest)` — plain-English summaries with class blurbs, object links (`https://sky.henseler.app/objects/<survey>/<oid>`), full `html.escape` sanitization on all upstream values, and a friendly "quiet week" message when no new events were recorded.
-- `skyalerts_digest/__main__.py`: CLI entrypoint (`python -m skyalerts_digest`).
+- `skyalerts_digest/config.py`: `DigestConfig.from_env()` — validates `DATABASE_URL`, `RESEND_API_KEY`, `DIGEST_FROM` (must use `@sky.henseler.app`), and `DIGEST_TO` (1–5 comma-separated addresses). Validation errors never echo secret or address values.
+- `skyalerts_digest/send.py`: `send_digest(digest, cfg, client)` — POSTs `{from, to, subject, html, text}` to `https://api.resend.com/emails` with `Idempotency-Key: digest-<week_end YYYY-MM-DD>`, a 10 s timeout, and one retry on `429`/`5xx` (honouring `Retry-After` up to 10 s). Logs recipient count and domain only, never full addresses or the API key.
+- `skyalerts_digest/web.py`: WSGI entrypoint (`skyalerts_digest.web:app`) serving `GET /api/cron/digest` and `POST /api/manual/digest`.
+- `skyalerts_digest/logutil.py`: JSON-lines structured logging to stderr.
+- `skyalerts_digest/__main__.py`: CLI entrypoint (`python -m skyalerts_digest`) for local preview.
 
-## Usage
+## Deployment: Vercel project `skyalerts-digest` (Root Directory `digest/`)
 
-Render Markdown for the 7 days ending `2026-11-01T00:00:00Z`:
+- **Project name:** `skyalerts-digest` with Root Directory set to `digest/`.
+- **Entrypoint:** `skyalerts_digest.web:app` (WSGI, configured via `[tool.vercel]` in `pyproject.toml`).
+- **Routes:**
+  - `GET /api/cron/digest` — invoked by Vercel Cron with `Authorization: Bearer $CRON_SECRET`.
+  - `POST /api/manual/digest` — invoked manually (or from `/admin`) with `Authorization: Bearer $DIGEST_TRIGGER_SECRET`.
+- **Cron schedule (`digest/vercel.json`):** `0 14 * * 1` — Mondays at 14:00 UTC, one hour after the daily 13:00 UTC ingest job. Computes `week_end` as today `00:00:00 UTC`.
+- **Function config:** `maxDuration: 60` seconds on `skyalerts_digest/web.py`.
+- **Environment variables (Production only):**
+  - `DATABASE_URL`: read-only `skyalerts_ro` connection string to Neon database `neondb` (`sslmode=require`).
+  - `RESEND_API_KEY`: Resend sending-only API key scoped to `sky.henseler.app`.
+  - `DIGEST_FROM`: optional; defaults to `Sky Alerts <digest@sky.henseler.app>`. Must end with `@sky.henseler.app` or `@sky.henseler.app>`.
+  - `DIGEST_TO`: comma-separated list of 1–5 recipient email addresses (e.g. `owner@example.com`).
+  - `CRON_SECRET`: random secret (at least 16 characters; 32+ recommended) sent by Vercel Cron as `Authorization: Bearer <CRON_SECRET>`.
+  - `DIGEST_TRIGGER_SECRET`: random secret (at least 32 characters), distinct from `CRON_SECRET`, used to authorize `POST /api/manual/digest`.
+  - `LOG_LEVEL`: optional (defaults to `INFO`).
+
+## Manual Trigger & Local Preview
+
+Trigger a digest send manually against the deployed Vercel project (include `x-vercel-protection-bypass` if Deployment Protection is enabled on `*.vercel.app`):
+
+```bash
+curl -X POST "https://<skyalerts-digest-deployment>/api/manual/digest" \
+  -H "Authorization: Bearer $DIGEST_TRIGGER_SECRET" \
+  -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET"
+```
+
+Render Markdown locally (read-only, no email sent):
 
 ```bash
 DATABASE_URL=postgresql://... uv --directory digest run python -m skyalerts_digest --week-end 2026-11-01
 ```
 
-Render HTML:
+Render HTML locally:
 
 ```bash
 DATABASE_URL=postgresql://... uv --directory digest run python -m skyalerts_digest --week-end 2026-11-01 --html

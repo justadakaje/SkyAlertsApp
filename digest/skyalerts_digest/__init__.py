@@ -1,4 +1,4 @@
-"""Sky Alerts weekly digest selection and rendering."""
+"""Sky Alerts weekly digest selection, rendering, and Resend delivery."""
 
 from .classes import (
     ARTIFACT_CLASS,
@@ -13,6 +13,7 @@ from .classes import (
     class_info,
     group_of,
 )
+from .config import DEFAULT_DIGEST_FROM, ConfigError, DigestConfig
 from .render import SITE_BASE_URL, object_url, render_html, render_markdown
 from .select import (
     Digest,
@@ -24,29 +25,48 @@ from .select import (
     mjd_to_datetime,
     select_digest,
 )
+from .send import (
+    RESEND_EMAILS_URL,
+    ResendError,
+    SendError,
+    SendResult,
+    format_subject,
+    idempotency_key,
+    send_digest,
+)
 
 __all__ = [
     "ARTIFACT_CLASS",
     "ASTEROID_CLASS",
+    "DEFAULT_DIGEST_FROM",
     "GROUPS",
     "KNOWN",
     "LOW_PRIORITY_CLASSES",
+    "RESEND_EMAILS_URL",
     "SITE_BASE_URL",
     "TRANSIENT_CLASSES",
     "ClassGroup",
     "ClassInfo",
+    "ConfigError",
     "Digest",
+    "DigestConfig",
     "DigestObject",
     "GroupCount",
     "GroupInfo",
+    "ResendError",
+    "SendError",
+    "SendResult",
     "SolarSystemSection",
     "WeekStats",
     "class_info",
     "datetime_to_mjd",
+    "format_subject",
     "group_of",
+    "idempotency_key",
     "mjd_to_datetime",
     "object_url",
     "render_html",
     "render_markdown",
     "select_digest",
+    "send_digest",
 ]
