@@ -4,8 +4,10 @@ import {
   CONSTELLATIONS,
   formatPeriod,
   formatRotation,
+  formatSsoLabel,
   HORIZONS_GIVE_UP_AFTER,
   horizonsUrl,
+  jplSbdbUrl,
   jplUrl,
   loadEphemerides,
   orbitviewerUrl,
@@ -131,5 +133,18 @@ describe('formatting', () => {
     expect(viewingHint({ ...e, mag: 14.4 })).toBe('Large amateur telescope')
     expect(viewingHint({ ...e, mag: 18.6 })).toBe('Research telescopes and long exposures')
     expect(viewingHint({ ...e, mag: 8.2, elongation: 12 })).toBe('Too close to the Sun to observe')
+  })
+
+  it('formats SkyBoT labels and builds safe JPL SBDB links', () => {
+    expect(formatSsoLabel(9537, 'Nolan')).toBe('(9537) Nolan')
+    expect(formatSsoLabel(null, '2026 BF3')).toBe('2026 BF3')
+
+    expect(jplSbdbUrl(9537, 'Nolan')).toBe('https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=9537')
+    expect(jplSbdbUrl(null, '2026 BF3')).toBe(
+      'https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=2026%20BF3',
+    )
+    expect(jplSbdbUrl(null, null)).toBeNull()
+    expect(jplSbdbUrl(null, '')).toBeNull()
+    expect(jplSbdbUrl(null, '<script>alert(1)</script>')).toBeNull()
   })
 })

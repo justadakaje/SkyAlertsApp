@@ -20,6 +20,8 @@ export interface EventRow {
   ndet: number | null
   ra: number | null
   dec: number | null
+  ssoName?: string | null
+  ssoNumber?: number | null
 }
 
 export interface ObjectRow extends EventRow {
@@ -33,6 +35,33 @@ export interface ClassificationRow {
   className: string
   probability: number
   ranking: number | null
+}
+
+export interface SsoIdentificationRow {
+  status: 'matched' | 'no_match' | 'error'
+  obsMjd: number
+  ssoNumber: number | null
+  ssoName: string | null
+  ssoClass: string | null
+  predictedMag: number | null
+  sepArcsec: number | null
+  raRateArcsecH: number | null
+  decRateArcsecH: number | null
+  geoDistAu: number | null
+  helioDistAu: number | null
+}
+
+export interface MatchedAsteroidRow {
+  survey: Survey
+  oid: string
+  obsMjd: number
+  ssoNumber: number | null
+  ssoName: string
+  ssoClass: string | null
+  predictedMag: number | null
+  sepArcsec: number
+  geoDistAu: number | null
+  helioDistAu: number | null
 }
 
 const EVENT_COLUMNS = `survey, oid, top_class AS "topClass", top_probability AS probability,
@@ -55,8 +84,12 @@ export async function listEvents(
 ): Promise<{ rows: EventRow[]; hasMore: boolean }> {
   const showArtifacts = f.artifacts || f.cls === ARTIFACT_CLASS
   const { rows } = await db.query<EventRow & { tier: number }>(
-    `SELECT ${EVENT_COLUMNS}, ${TIER} AS tier
+    `SELECT ${EVENT_COLUMNS},
+            CASE WHEN s.status = 'matched' THEN s.sso_name END AS "ssoName",
+            CASE WHEN s.status = 'matched' THEN s.sso_number END AS "ssoNumber",
+            ${TIER} AS tier
        FROM objects
+       LEFT JOIN sso_identifications s USING (survey, oid)
       WHERE lastmjd >= $1
         AND ($2::text IS NULL OR survey = $2)
         AND ($3::text IS NULL OR top_class = $3)
@@ -119,6 +152,43 @@ export async function getClassifications(
   return rows
 }
 
+export async function getSsoIdentification(
+  db: Db,
+  survey: Survey,
+  oid: string,
+): Promise<SsoIdentificationRow | null> {
+  const { rows } = await db.query<SsoIdentificationRow>(
+    `SELECT status, obs_mjd AS "obsMjd", sso_number AS "ssoNumber",
+            sso_name AS "ssoName", sso_class AS "ssoClass",
+            predicted_mag AS "predictedMag", sep_arcsec AS "sepArcsec",
+            ra_rate_arcsec_h AS "raRateArcsecH", dec_rate_arcsec_h AS "decRateArcsecH",
+            geo_dist_au AS "geoDistAu", helio_dist_au AS "helioDistAu"
+       FROM sso_identifications
+      WHERE survey = $1 AND oid = $2`,
+    [survey, oid],
+  )
+  return rows[0] ?? null
+}
+
+export async function listMatchedAsteroids(
+  db: Db,
+  limit = 25,
+): Promise<MatchedAsteroidRow[]> {
+  const { rows } = await db.query<MatchedAsteroidRow>(
+    `SELECT s.survey, s.oid, s.obs_mjd AS "obsMjd",
+            s.sso_number AS "ssoNumber", s.sso_name AS "ssoName",
+            s.sso_class AS "ssoClass", s.predicted_mag AS "predictedMag",
+            s.sep_arcsec AS "sepArcsec", s.geo_dist_au AS "geoDistAu",
+            s.helio_dist_au AS "helioDistAu"
+       FROM sso_identifications s
+      WHERE s.status = 'matched'
+      ORDER BY s.obs_mjd DESC, s.sep_arcsec ASC, s.survey, s.oid
+      LIMIT $1`,
+    [limit],
+  )
+  return rows
+}
+
 // ZTF magpsf is a difference magnitude. When ALeRCE has corrected it to an apparent
 // magnitude (variable stars), plot that; an uncorrected negative difference
 // (isdiffpos -1) has no meaningful magnitude and is flagged so the chart can skip it.
@@ -134,7 +204,10 @@ export async function getDetections(db: Db, survey: Survey, oid: string): Promis
                  THEN (raw->>'sigmapsf_corr')::float8 ELSE mag_err END AS "magErr",
             flux_njy AS "fluxNjy", flux_err_njy AS "fluxErrNjy",
             (raw->'isdiffpos' IN ('-1'::jsonb, '"-1"'::jsonb, '"f"'::jsonb)
-              AND raw->'corrected' IS DISTINCT FROM 'true'::jsonb) AS negative
+              AND raw->'corrected' IS DISTINCT FROM 'true'::jsonb) AS negative,
+            raw->>'candid' AS candid,
+            CASE WHEN jsonb_typeof(raw->'has_stamp') = 'boolean'
+                 THEN (raw->>'has_stamp')::boolean ELSE NULL END AS "hasStamp"
        FROM detections
       WHERE survey = $1 AND oid = $2
       ORDER BY mjd

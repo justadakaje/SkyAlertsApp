@@ -7,7 +7,7 @@ export function buildCsp(nonce: string, dev: boolean): string {
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
     `style-src 'self' 'nonce-${nonce}'`,
-    "img-src 'self' data:",
+    "img-src 'self' data: https://avro.alerce.online",
     "font-src 'self'",
     "connect-src 'self'",
     "object-src 'none'",

@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_FILTERS, PAGE_SIZE } from '@/lib/filters'
-import { classCounts, dailyCounts, getObject, listEvents, ORDER_BY, weekComparison, type Db } from '@/lib/queries'
+import {
+  classCounts,
+  dailyCounts,
+  getDetections,
+  getObject,
+  getSsoIdentification,
+  listEvents,
+  listMatchedAsteroids,
+  ORDER_BY,
+  weekComparison,
+  type Db,
+} from '@/lib/queries'
 
 function fakeDb(rows: unknown[] = []) {
   const calls: { text: string; params: unknown[] }[] = []
@@ -85,5 +96,57 @@ describe('other queries', () => {
       transientsThisWeek: 0,
       transientsLastWeek: 0,
     })
+  })
+
+  it('fetches Solar System identification without exposing error details', async () => {
+    const row = {
+      status: 'matched' as const,
+      obsMjd: 61342.5,
+      ssoNumber: 9537,
+      ssoName: 'Nolan',
+      ssoClass: 'MB>Middle',
+      predictedMag: 18.6,
+      sepArcsec: 3.112,
+      raRateArcsecH: 64.37,
+      decRateArcsecH: -30.38,
+      geoDistAu: 2.985,
+      helioDistAu: 2.31,
+    }
+    const { db, calls } = fakeDb([row])
+    expect(await getSsoIdentification(db, 'ztf', 'ZTF26acdjxpl')).toEqual(row)
+    expect(calls[0]!.params).toEqual(['ztf', 'ZTF26acdjxpl'])
+    expect(calls[0]!.text).not.toMatch(/\berror\b/i)
+
+    const empty = fakeDb([])
+    expect(await getSsoIdentification(empty.db, 'ztf', 'ZTF26acdjxpl')).toBeNull()
+  })
+
+  it('lists matched asteroids ordered by observation time and separation', async () => {
+    const row = {
+      survey: 'ztf' as const,
+      oid: 'ZTF26acdjxpl',
+      obsMjd: 61342.5,
+      ssoNumber: 9537,
+      ssoName: 'Nolan',
+      ssoClass: 'MB>Middle',
+      predictedMag: 18.6,
+      sepArcsec: 3.112,
+      geoDistAu: 2.985,
+      helioDistAu: 2.31,
+    }
+    const { db, calls } = fakeDb([row])
+    expect(await listMatchedAsteroids(db, 15)).toEqual([row])
+    expect(calls[0]!.params).toEqual([15])
+    expect(calls[0]!.text).toContain("s.status = 'matched'")
+    expect(calls[0]!.text).toContain('ORDER BY s.obs_mjd DESC, s.sep_arcsec ASC')
+    expect(calls[0]!.text).not.toMatch(/\berror\b/i)
+  })
+
+  it('selects candid and hasStamp on getDetections', async () => {
+    const { db, calls } = fakeDb([])
+    await getDetections(db, 'ztf', 'ZTF18acwycia')
+    expect(calls[0]!.params).toEqual(['ztf', 'ZTF18acwycia'])
+    expect(calls[0]!.text).toContain("raw->>'candid' AS candid")
+    expect(calls[0]!.text).toContain('AS "hasStamp"')
   })
 })

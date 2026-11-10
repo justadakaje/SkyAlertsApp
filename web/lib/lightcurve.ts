@@ -16,6 +16,10 @@ export interface Detection {
   fluxErrNjy: number | null
   /** ZTF: an uncorrected negative difference, which has no plottable magnitude. */
   negative: boolean
+  /** ZTF candidate id (`candid`), when present. */
+  candid?: string | null
+  /** Whether ALeRCE reports an image cutout for this detection (`null` when unknown). */
+  hasStamp?: boolean | null
 }
 
 export interface CurvePoint {

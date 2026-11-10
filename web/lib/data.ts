@@ -40,13 +40,20 @@ export const getObjectPage = unstable_cache(
     const pool = getPool()
     const object = await q.getObject(pool, survey, oid)
     if (!object) return null
-    const [classifications, detections] = await Promise.all([
+    const [classifications, detections, sso] = await Promise.all([
       q.getClassifications(pool, survey, oid),
       q.getDetections(pool, survey, oid),
+      q.getSsoIdentification(pool, survey, oid),
     ])
-    return { object, classifications, detections }
+    return { object, classifications, detections, sso }
   },
-  ['object-page-v1'],
+  ['object-page-v2'],
+  opts,
+)
+
+export const getMatchedAsteroids = unstable_cache(
+  async (limit = 25) => q.listMatchedAsteroids(getPool(), limit),
+  ['matched-asteroids-v1'],
   opts,
 )
 
