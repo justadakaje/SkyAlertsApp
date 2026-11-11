@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { dateToMjd, formatDec, formatRa, galacticToEquatorial, mjdToDate } from '@/lib/astro'
+import {
+  dateToMjd,
+  formatDec,
+  formatRa,
+  galacticLatitude,
+  galacticToEquatorial,
+  mjdToDate,
+  skyRegion,
+} from '@/lib/astro'
 
 describe('time', () => {
   it('maps MJD 40587 to the Unix epoch and round-trips', () => {
@@ -31,5 +39,19 @@ describe('coordinates', () => {
     expect(gc.dec).toBeCloseTo(-28.936, 2)
     const ngp = galacticToEquatorial(123, 90)
     expect(ngp.dec).toBeCloseTo(27.128, 2)
+    expect(galacticLatitude(ngp.ra, ngp.dec)).toBeCloseTo(90, 1)
+    expect(galacticLatitude(gc.ra, gc.dec)).toBeCloseTo(0, 1)
+  })
+
+  it('summarises hemisphere, ~40°N visibility, and galactic plane proximity', () => {
+    const gc = galacticToEquatorial(0, 0)
+    expect(skyRegion(gc.ra, gc.dec)).toContain('Southern sky')
+    expect(skyRegion(gc.ra, gc.dec)).toContain('below ~40°N horizon')
+    expect(skyRegion(gc.ra, gc.dec)).toContain('near Milky Way plane')
+
+    const ngp = galacticToEquatorial(123, 90)
+    expect(skyRegion(ngp.ra, ngp.dec)).toContain('Northern sky')
+    expect(skyRegion(ngp.ra, ngp.dec)).toContain('reaches above the ~40°N horizon')
+    expect(skyRegion(ngp.ra, ngp.dec)).toContain('away from galactic plane')
   })
 })

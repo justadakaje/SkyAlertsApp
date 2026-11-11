@@ -55,6 +55,11 @@ export function triggerConfig(env: Env = process.env): TriggerConfig | null {
   return { url, secret, bypass }
 }
 
+/** Derive the /api/manual/identify endpoint on the same ingest origin as MANUAL_TRIGGER_URL. */
+export function identifyTriggerUrl(triggerUrl: string): string {
+  return new URL('/api/manual/identify', triggerUrl).toString()
+}
+
 export interface DigestConfig {
   url: string
   secret: string

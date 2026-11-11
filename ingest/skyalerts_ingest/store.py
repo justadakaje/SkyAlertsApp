@@ -6,6 +6,7 @@ batch changes only last_ingested_at / last_ingest_run_id.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 from collections.abc import Sequence
@@ -295,6 +296,17 @@ class Store:
                 (survey, oid),
             )
         return len(detections), len(classifications)
+
+    def prune_artifacts(self, *, max_age_days: float = 30.0, ref_mjd: float | None = None) -> int:
+        """Prune un-enriched bogus artifacts older than max_age_days via prune_old_artifacts()."""
+        with contextlib.suppress(psycopg.Error):
+            row = self.conn.execute(
+                "SELECT prune_old_artifacts(%s, %s)",
+                (max_age_days, ref_mjd),
+            ).fetchone()
+            if row and row[0] is not None:
+                return int(row[0])
+        return 0
 
 
 def _detection_params(detections: Sequence[DetectionRow]) -> list[tuple[Any, ...]]:

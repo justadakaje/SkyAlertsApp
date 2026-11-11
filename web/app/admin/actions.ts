@@ -7,7 +7,7 @@ import { after } from 'next/server'
 import { getAdminPool } from '@/lib/admin/db'
 import { parseDigestSendResponse, SEND_TIMEOUT_MS, sendDigestHref } from '@/lib/admin/digest'
 import { activeRun, insertAudit } from '@/lib/admin/queries'
-import { digestConfig, SESSION_COOKIE, triggerConfig } from '@/lib/auth/config'
+import { digestConfig, identifyTriggerUrl, SESSION_COOKIE, triggerConfig } from '@/lib/auth/config'
 import { COOKIE_OPTS, log, requireAdminForm } from '@/lib/auth/server'
 
 // Ingest takes up to ~4 min; leave the manual call room to finish under Vercel's 300 s.
@@ -44,6 +44,41 @@ export async function runIngestNow(form: FormData) {
     }
   })
   redirect('/admin?notice=requested')
+}
+
+/** Ask the ingest project to run SkyBoT asteroid identification now. Audited before it's sent. */
+export async function runIdentifyNow(form: FormData) {
+  const { session } = await requireAdminForm(form)
+  const trigger = triggerConfig()
+  if (!trigger) redirect('/admin?notice=unconfigured')
+
+  const db = getAdminPool()
+  await insertAudit(db, {
+    actor: session.uid,
+    action: 'identify.rerun',
+    target: 'identify',
+    details: { login: session.login },
+  })
+  log('info', 'manual asteroid identification requested', { uid: session.uid })
+
+  const url = identifyTriggerUrl(trigger.url)
+  after(async () => {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${trigger.secret}`,
+          ...(trigger.bypass ? { 'x-vercel-protection-bypass': trigger.bypass } : {}),
+        },
+        signal: AbortSignal.timeout(TRIGGER_TIMEOUT_MS),
+        cache: 'no-store',
+      })
+      log(res.ok ? 'info' : 'error', 'manual asteroid identification finished', { status: res.status })
+    } catch (err) {
+      log('error', 'manual asteroid identification call failed', { error: err instanceof Error ? err.name : 'unknown' })
+    }
+  })
+  redirect('/admin?notice=identify_requested')
 }
 
 /** Ask the digest project to send this week's digest now. Audited before it's sent. */

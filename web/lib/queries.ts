@@ -223,10 +223,29 @@ export interface DailyCount {
   n: number
 }
 
+export interface DailySurveyCount {
+  day: number // integer MJD
+  survey: Survey
+  n: number
+}
+
 /** New (first-detected) objects per UTC day and class, artifacts excluded. */
 export async function dailyCounts(db: Db, sinceMjd: number): Promise<DailyCount[]> {
   const { rows } = await db.query<DailyCount>(
     `SELECT floor(firstmjd)::int AS day, top_class AS "topClass", count(*)::int AS n
+       FROM objects
+      WHERE firstmjd >= $1 AND top_class IS DISTINCT FROM '${ARTIFACT_CLASS}'
+      GROUP BY 1, 2
+      ORDER BY 1, 2`,
+    [sinceMjd],
+  )
+  return rows
+}
+
+/** New (first-detected) objects per UTC day and survey, artifacts excluded. */
+export async function dailySurveyCounts(db: Db, sinceMjd: number): Promise<DailySurveyCount[]> {
+  const { rows } = await db.query<DailySurveyCount>(
+    `SELECT floor(firstmjd)::int AS day, survey, count(*)::int AS n
        FROM objects
       WHERE firstmjd >= $1 AND top_class IS DISTINCT FROM '${ARTIFACT_CLASS}'
       GROUP BY 1, 2

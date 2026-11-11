@@ -6,11 +6,11 @@ import { LightCurve } from '@/components/LightCurve'
 import { Probabilities } from '@/components/Probabilities'
 import { SkyMap } from '@/components/SkyMap'
 import { alerceUrl, buildZtfStamps } from '@/lib/alerce'
-import { formatDec, formatRa, mjdToDate } from '@/lib/astro'
+import { formatDec, formatRa, mjdToDate, skyRegion } from '@/lib/astro'
 import { classInfo } from '@/lib/classes'
 import { getObjectPage } from '@/lib/data'
 import { isSurvey, isValidOid } from '@/lib/filters'
-import { formatAgo, formatObjectDescription, formatProbability, formatUtc } from '@/lib/format'
+import { formatAgo, formatObjectDescription, formatProbability, formatUtc, humanBrightness } from '@/lib/format'
 import { buildCurve } from '@/lib/lightcurve'
 import { formatSsoLabel, jplSbdbUrl } from '@/lib/solar'
 
@@ -55,6 +55,16 @@ export default async function ObjectPage({ params }: { params: Params }) {
   const now = new Date()
   const first = o.firstmjd === null ? null : mjdToDate(o.firstmjd)
   const last = o.lastmjd === null ? null : mjdToDate(o.lastmjd)
+  const peakMag = detections.reduce<number | null>(
+    (best, d) => (d.mag !== null && !d.negative && (best === null || d.mag < best) ? d.mag : best),
+    null,
+  )
+  const peakFlux = detections.reduce<number | null>(
+    (best, d) => (d.fluxNjy !== null && d.fluxNjy > 0 && (best === null || d.fluxNjy > best) ? d.fluxNjy : best),
+    null,
+  )
+  const brightnessNote = humanBrightness(peakMag, peakFlux)
+  const regionNote = o.ra !== null && o.dec !== null ? skyRegion(o.ra, o.dec) : null
 
   return (
     <article className="object">
@@ -100,7 +110,15 @@ export default async function ObjectPage({ params }: { params: Params }) {
               {o.ra.toFixed(5)}°, {o.dec.toFixed(5)}°
             </dd>
           ) : null}
+          {regionNote ? <dd className="muted small">{regionNote}</dd> : null}
         </div>
+        {brightnessNote ? (
+          <div>
+            <dt>Peak brightness</dt>
+            <dd>{brightnessNote.split(' · ')[0]}</dd>
+            <dd className="muted small">{brightnessNote.split(' · ').slice(1).join(' · ')}</dd>
+          </div>
+        ) : null}
       </dl>
 
       {matchedSso && ssoLabel ? (

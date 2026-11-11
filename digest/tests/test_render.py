@@ -448,3 +448,63 @@ def test_render_podcast_strips_markdown_injection_and_raw_html() -> None:
         "## By the numbers",
         "## Outro",
     ]
+
+
+def test_render_deduplicates_class_blurbs_and_surfaces_skybot_names() -> None:
+    sn1 = DigestObject(
+        survey="ztf",
+        oid="ZTF26sn1",
+        top_class="SNIa",
+        top_probability=0.97,
+        firstmjd=61340.0,
+        lastmjd=61344.5,
+        ndet=6,
+    )
+    sn2 = DigestObject(
+        survey="lsst",
+        oid="313708285401235522",
+        top_class="SNIa",
+        top_probability=0.94,
+        firstmjd=61341.0,
+        lastmjd=61344.2,
+        ndet=4,
+    )
+    nolan = DigestObject(
+        survey="ztf",
+        oid="ZTF26nolan",
+        top_class="asteroid",
+        top_probability=0.99,
+        firstmjd=61342.0,
+        lastmjd=61342.1,
+        ndet=3,
+        sso_name="Nolan",
+        sso_number=9537,
+        sep_arcsec=3.1,
+    )
+    digest = Digest(
+        week_start=WEEK_START,
+        week_end=WEEK_END,
+        start_mjd=START_MJD,
+        end_mjd=END_MJD,
+        headliners=(sn1, sn2),
+        brightest=(),
+        solar_system=SolarSystemSection(asteroid_count=2, examples=(nolan,)),
+        stats=_stats(transient=2, solar=2, total_objects=50, total_detections=400),
+    )
+
+    md = render_markdown(digest)
+    html_out = render_html(digest)
+    pod_out = render_podcast(digest)
+
+    # SNIa blurb appears once in the Headliners section (not repeated on sn2)
+    assert md.count("A white dwarf blown apart.") == 1
+    assert html_out.count("A white dwarf blown apart.") == 1
+    hl_pod = pod_out.split("## Headliners")[1].split("## Brightest new")[0]
+    assert hl_pod.count("A white dwarf blown apart.") == 1
+
+    # SkyBoT matched asteroid name is surfaced in Markdown, HTML, and Podcast
+    assert "(9537\\) Nolan" in md or "\\(9537\\) Nolan" in md
+    assert "matched within 3.1″ by SkyBoT" in md
+    assert "(9537) Nolan" in html_out
+    assert "matched within 3.1&Prime; by SkyBoT" in html_out
+    assert "asteroid 9537 Nolan (ZTF26nolan, ZTF)" in pod_out

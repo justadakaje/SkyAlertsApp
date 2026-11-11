@@ -38,6 +38,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 import psycopg
 
 from . import logutil
@@ -428,11 +429,69 @@ def run(
                 duration_ms=res.duration_ms,
                 coverage={k: c.as_dict() for k, c in res.coverage.items()},
             )
+            pruned = store.prune_artifacts(
+                ref_mjd=datetime_to_mjd(now) if now is not None else None
+            )
+            if pruned:
+                log.info("pruned old bogus artifacts", extra={"run_id": run_id, "pruned": pruned})
         except Exception:
             # Don't mask the original error; the lease expires on its own.
             log.exception("could not record run outcome", extra={"run_id": run_id})
+        if res.status == "failed" or len(res.errors) >= 5:
+            notify_ingest_alert(res, trigger)
         log.info("ingest finished", extra=res.as_dict())
     return res
+
+
+RESEND_EMAILS_URL = "https://api.resend.com/emails"
+ALERT_FROM = "Sky Alerts <alerts@sky.henseler.app>"
+
+
+def notify_ingest_alert(
+    res: RunResult,
+    trigger: str,
+    *,
+    http_client: httpx.Client | None = None,
+) -> bool:
+    """Send a best-effort owner email alert via Resend on ingest failure or error spike."""
+    api_key = (os.getenv("ALERT_RESEND_API_KEY") or os.getenv("RESEND_API_KEY") or "").strip()
+    recipient = (os.getenv("ALERT_TO") or os.getenv("DIGEST_TO") or "").strip()
+    if not api_key or not recipient:
+        return False
+    subject = f"[Sky Alerts] Ingest {res.status} (run #{res.run_id}, {len(res.errors)} errors)"
+    lines = [
+        f"Ingest run #{res.run_id} ({trigger}) finished with status '{res.status}'.",
+        f"Objects upserted: {res.objects_upserted}, enriched: {res.objects_enriched}",
+        f"Errors ({len(res.errors)}):",
+        *[f"- {e.get('source', 'unknown')}: {e.get('error', '')}" for e in res.errors[:10]],
+        "",
+        "Admin panel: https://sky.henseler.app/admin/runs",
+    ]
+    payload = {
+        "from": ALERT_FROM,
+        "to": [recipient],
+        "subject": subject,
+        "text": "\n".join(lines),
+    }
+    try:
+        if http_client is not None:
+            resp = http_client.post(
+                RESEND_EMAILS_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+                timeout=8.0,
+            )
+        else:
+            with httpx.Client(timeout=8.0) as c:
+                resp = c.post(
+                    RESEND_EMAILS_URL,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json=payload,
+                )
+        return resp.status_code < 300
+    except Exception:
+        log.warning("ingest alert notification failed", extra={"run_id": res.run_id})
+        return False
 
 
 def main(argv: list[str] | None = None) -> int:

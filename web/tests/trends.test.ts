@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { GROUPS } from '@/lib/classes'
-import { dailyMultiples, formatChange, weeklyMix } from '@/lib/trends'
+import { dailyMultiples, formatChange, weeklyMix, weeklySurveyMix } from '@/lib/trends'
 
 const today = 61345
 
@@ -77,5 +77,28 @@ describe('formatChange', () => {
     expect(formatChange(50, 50)).toBe('0%')
     expect(formatChange(0, 0)).toBe('0%')
     expect(formatChange(5, 0)).toBe('—')
+  })
+})
+
+describe('weeklySurveyMix', () => {
+  it('computes Rubin (LSST) vs ZTF weekly shares across 12 weeks', () => {
+    const weeks = weeklySurveyMix(
+      [
+        { day: today, survey: 'lsst', n: 30 },
+        { day: today - 2, survey: 'ztf', n: 10 },
+      ],
+      today,
+      12,
+    )
+    expect(weeks).toHaveLength(12)
+    expect(weeks[11]).toMatchObject({
+      start: today - 6,
+      end: today,
+      lsst: 30,
+      ztf: 10,
+      lsstPct: 75,
+      ztfPct: 25,
+      total: 40,
+    })
   })
 })

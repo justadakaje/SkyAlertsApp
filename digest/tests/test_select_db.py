@@ -96,12 +96,13 @@ def _insert_detection(
     measurement_id: str,
     mjd: float,
     mag: float | None,
+    flux_njy: float | None = None,
     band: str | None = "g",
 ) -> None:
     conn.execute(
-        """INSERT INTO detections (survey, oid, measurement_id, mjd, band, mag, raw)
-           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-        (survey, oid, measurement_id, mjd, band, mag, Jsonb({"id": measurement_id})),
+        """INSERT INTO detections (survey, oid, measurement_id, mjd, band, mag, flux_njy, raw)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+        (survey, oid, measurement_id, mjd, band, mag, flux_njy, Jsonb({"id": measurement_id})),
     )
 
 
@@ -213,15 +214,35 @@ def test_select_digest_excludes_bogus_and_orders_correctly(db_urls: tuple[str, s
         _insert_detection(
             conn, oid="ZTF26sn_top", measurement_id="d3", mjd=END_MJD - 0.9, mag=16.1, band="g"
         )
+        # LSST detection on ZTF26rrl with positive flux_njy=1_000_000 (AB mag 16.4)
         _insert_detection(
-            conn, oid="ZTF26rrl", measurement_id="d4", mjd=END_MJD - 1.2, mag=16.8, band="g"
+            conn,
+            oid="ZTF26rrl",
+            measurement_id="d4",
+            mjd=END_MJD - 1.2,
+            mag=None,
+            flux_njy=1_000_000.0,
+            band="g",
         )
         _insert_detection(
             conn, oid="ZTF26slsn", measurement_id="d5", mjd=END_MJD - 2.0, mag=18.4, band="i"
         )
-        # Flux-only detection (mag=None) on ZTF26cv should not qualify it as brightest
+        # Negative/missing flux detection (mag=None, flux_njy=-500) on ZTF26cv should not qualify
         _insert_detection(
-            conn, oid="ZTF26cv", measurement_id="d6", mjd=END_MJD - 2.0, mag=None, band="g"
+            conn,
+            oid="ZTF26cv",
+            measurement_id="d6",
+            mjd=END_MJD - 2.0,
+            mag=None,
+            flux_njy=-500.0,
+            band="g",
+        )
+        # Match ZTF26ast3 in sso_identifications so it leads solar_system.examples
+        conn.execute(
+            """INSERT INTO sso_identifications
+               (survey, oid, obs_mjd, status, sso_name, sso_number, sep_arcsec)
+               VALUES ('ztf', 'ZTF26ast3', %s, 'matched', 'Nolan', 9537, 3.1)""",
+            (END_MJD - 1.0,),
         )
 
     with psycopg.connect(ro_dsn, autocommit=True) as ro_conn:
@@ -243,13 +264,17 @@ def test_select_digest_excludes_bogus_and_orders_correctly(db_urls: tuple[str, s
     ]
     assert digest.brightest[0].peak_mag == pytest.approx(15.2)
     assert digest.brightest[0].peak_band == "r"
+    assert digest.brightest[2].peak_mag == pytest.approx(16.4)
 
     assert digest.solar_system.asteroid_count == 4
     assert [a.oid for a in digest.solar_system.examples] == [
+        "ZTF26ast3",
         "ZTF26ast1",
         "ZTF26ast2",
-        "ZTF26ast3",
     ]
+    assert digest.solar_system.examples[0].sso_name == "Nolan"
+    assert digest.solar_system.examples[0].sso_number == 9537
+    assert digest.solar_system.examples[0].sep_arcsec == pytest.approx(3.1)
 
     # Week in numbers (bogus object & its detection excluded)
     assert digest.stats.count_for("transient") == 6

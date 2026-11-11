@@ -1,22 +1,31 @@
 import Link from 'next/link'
 
+import { ClassBadge } from '@/components/ClassBadge'
 import { EventTable } from '@/components/EventTable'
+import { skyRegion } from '@/lib/astro'
 import { ARTIFACT_CLASS, classInfo } from '@/lib/classes'
-import { getClassCounts, getEvents, timeBucket } from '@/lib/data'
+import { getClassCounts, getEvents, getMatchedAsteroids, timeBucket } from '@/lib/data'
 import { DEFAULT_FILTERS, homeHref, parseHomeFilters, WINDOWS, type SearchParams } from '@/lib/filters'
+import { formatProbability, pickHomeHighlights } from '@/lib/format'
 
 const WINDOW_LABEL = { '1d': 'last day', '3d': 'last 3 days', '7d': 'last 7 days', '30d': 'last 30 days' }
 
 export default async function Home({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const f = parseHomeFilters(await searchParams)
   const bucket = timeBucket()
-  const [events, counts] = await Promise.all([getEvents(f, bucket), getClassCounts(f.survey, f.window, bucket)])
+  const showHighlights = f.page === 1 && !f.cls && !f.artifacts
+  const [events, counts, matchedAsteroids] = await Promise.all([
+    getEvents(f, bucket),
+    getClassCounts(f.survey, f.window, bucket),
+    showHighlights ? getMatchedAsteroids(3) : Promise.resolve([]),
+  ])
   const now = new Date()
 
   const artifacts = counts.find((c) => c.topClass === ARTIFACT_CLASS)?.n ?? 0
   const visible = counts.filter((c) => f.artifacts || c.topClass !== ARTIFACT_CLASS)
   const total = visible.reduce((s, c) => s + c.n, 0)
   const selected = f.cls ? classInfo(f.cls).label : null
+  const highlights = showHighlights ? pickHomeHighlights(events.rows, matchedAsteroids) : []
 
   return (
     <>
@@ -28,6 +37,46 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
           after the telescope observes.
         </p>
       </section>
+
+      {highlights.length > 0 ? (
+        <section aria-labelledby="highlights-heading" className="highlights-section">
+          <h2 id="highlights-heading" className="section-title">
+            What stood out <span className="muted">· {WINDOW_LABEL[f.window]}</span>
+          </h2>
+          <div className="highlights-grid">
+            {highlights.map((h) => {
+              const info = classInfo(h.topClass)
+              const region = h.ra !== null && h.dec !== null ? skyRegion(h.ra, h.dec) : null
+              return (
+                <article key={`${h.survey}:${h.oid}`} className="highlight-card">
+                  <p className="eyebrow">{h.eyebrow}</p>
+                  <h3>
+                    <Link href={`/objects/${h.survey}/${h.oid}`} className="row-link">
+                      {h.ssoLabel ? (
+                        <>
+                          <strong>{h.ssoLabel}</strong> <span className="muted oid">({h.oid})</span>
+                        </>
+                      ) : (
+                        <span className="oid">{h.oid}</span>
+                      )}
+                    </Link>
+                    <span className="survey-tag">{h.survey.toUpperCase()}</span>
+                  </h3>
+                  <p className="highlight-meta">
+                    <ClassBadge name={h.topClass} />
+                    {h.probability !== null ? (
+                      <span className="muted small"> {formatProbability(h.probability)} confidence</span>
+                    ) : null}
+                    {h.ndet !== null ? <span className="muted small"> · {h.ndet} detections</span> : null}
+                  </p>
+                  {info.blurb ? <p className="small muted">{info.blurb}</p> : null}
+                  {region ? <p className="small muted">{region}</p> : null}
+                </article>
+              )
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <nav className="chips" aria-label="Filter by class">
         <Link href={homeHref(f, { cls: null })} className="chip" aria-current={f.cls ? undefined : 'page'}>

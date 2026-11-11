@@ -50,11 +50,12 @@ def test_applies_all_then_is_idempotent(db_url):
         "0004_web_admin_role",
         "0005_ingest_coverage",
         "0006_sso_identifications",
+        "0007_retention_policy",
     ]
     assert migrate.migrate(db_url) == []
     with psycopg.connect(db_url) as c:
         n = c.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]
-    assert n == 6
+    assert n == 7
 
 
 def test_dry_run_changes_nothing(db_url):
@@ -65,6 +66,7 @@ def test_dry_run_changes_nothing(db_url):
         "0004_web_admin_role",
         "0005_ingest_coverage",
         "0006_sso_identifications",
+        "0007_retention_policy",
     ]
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('objects')").fetchone()[0] is None
@@ -83,13 +85,13 @@ def test_checksum_mismatch_is_refused(db_url, tmp_path):
 def test_failed_migration_rolls_back(db_url, tmp_path):
     d = tmp_path / "m"
     shutil.copytree(migrate.MIGRATIONS_DIR, d)
-    (d / "0007_broken.sql").write_text("CREATE TABLE ok_part (x int);\nSELECT * FROM nope;\n")
+    (d / "0008_broken.sql").write_text("CREATE TABLE ok_part (x int);\nSELECT * FROM nope;\n")
     with pytest.raises(psycopg.Error):
         migrate.migrate(db_url, directory=d)
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('ok_part')").fetchone()[0] is None
         versions = [r[0] for r in c.execute("SELECT version FROM schema_migrations")]
-    assert "0007_broken" not in versions and "0006_sso_identifications" in versions
+    assert "0008_broken" not in versions and "0007_retention_policy" in versions
 
 
 def test_bad_filename_rejected(tmp_path):
@@ -310,3 +312,25 @@ def test_dry_run_on_fresh_db_creates_nothing(db_url):
     migrate.migrate(db_url, dry_run=True)
     with psycopg.connect(db_url) as c:
         assert c.execute("SELECT to_regclass('schema_migrations')").fetchone()[0] is None
+
+
+def test_retention_policy_prunes_only_old_bogus_artifacts(migrated):
+    with _as(migrated, "skyalerts_ingest") as c:
+        c.execute(
+            """INSERT INTO objects (survey, oid, top_class, lastmjd, raw)
+               VALUES ('ztf', 'old_bogus', 'bogus', 58000.0, '{}'::jsonb),
+                      ('ztf', 'recent_bogus', 'bogus', 99000.0, '{}'::jsonb),
+                      ('ztf', 'old_sn', 'SNIa', 58000.0, '{}'::jsonb)"""
+        )
+        pruned = c.execute("SELECT prune_old_artifacts(30.0)").fetchone()[0]
+        assert pruned == 1
+        remaining = [
+            r[0] for r in c.execute("SELECT oid FROM objects ORDER BY oid").fetchall()
+        ]
+        assert remaining == ["old_sn", "recent_bogus"]
+        with pytest.raises(errors.RaiseException):
+            c.execute("SELECT prune_old_artifacts(1.0)")
+    with _as(migrated, "skyalerts_ro") as c, pytest.raises(errors.InsufficientPrivilege):
+        c.execute("SELECT prune_old_artifacts(30.0)")
+    with _as(migrated, "skyalerts_web_admin") as c, pytest.raises(errors.InsufficientPrivilege):
+        c.execute("SELECT prune_old_artifacts(30.0)")
