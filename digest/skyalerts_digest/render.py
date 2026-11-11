@@ -155,9 +155,7 @@ def render_markdown(d: Digest) -> str:
                             f"[{_esc_md(ex.oid)}]({url}) ({_esc_md(ex.survey.upper())}){sep_part}"
                         )
                     else:
-                        lines.append(
-                            f"- [{_esc_md(ex.oid)}]({url}) ({_esc_md(ex.survey.upper())})"
-                        )
+                        lines.append(f"- [{_esc_md(ex.oid)}]({url}) ({_esc_md(ex.survey.upper())})")
         else:
             lines.append("No asteroids recorded this week.")
         lines.append("")

@@ -324,9 +324,7 @@ def test_retention_policy_prunes_only_old_bogus_artifacts(migrated):
         )
         pruned = c.execute("SELECT prune_old_artifacts(30.0)").fetchone()[0]
         assert pruned == 1
-        remaining = [
-            r[0] for r in c.execute("SELECT oid FROM objects ORDER BY oid").fetchall()
-        ]
+        remaining = [r[0] for r in c.execute("SELECT oid FROM objects ORDER BY oid").fetchall()]
         assert remaining == ["old_sn", "recent_bogus"]
         with pytest.raises(errors.RaiseException):
             c.execute("SELECT prune_old_artifacts(1.0)")
