@@ -1,5 +1,5 @@
 import { ARTIFACT_CLASS, GROUPS, groupOf, type ClassGroup } from './classes'
-import type { DailyCount } from './queries'
+import type { DailyCount, DailySurveyCount } from './queries'
 import type { DayBar } from './stats'
 
 export interface GroupPanel {
@@ -113,4 +113,51 @@ export function formatChange(current: number, previous: number): string {
   if (previous <= 0) return current === 0 ? '0%' : '—'
   const pct = Math.round(((current - previous) / previous) * 100)
   return pct > 0 ? `+${pct}%` : `${pct}%`
+}
+
+export interface SurveyWeekColumn {
+  start: number
+  end: number
+  lsst: number
+  ztf: number
+  lsstPct: number
+  ztfPct: number
+  total: number
+}
+
+/**
+ * Weekly Rubin (LSST) vs. ZTF volume and percentage share over the last `weeks` full 7-day weeks.
+ */
+export function weeklySurveyMix(rows: DailySurveyCount[], todayMjd: number, weeks = 12): SurveyWeekColumn[] {
+  const firstDay = todayMjd - weeks * 7 + 1
+  const cols: SurveyWeekColumn[] = Array.from({ length: weeks }, (_, i) => {
+    const start = firstDay + i * 7
+    return {
+      start,
+      end: start + 6,
+      lsst: 0,
+      ztf: 0,
+      lsstPct: 0,
+      ztfPct: 0,
+      total: 0,
+    }
+  })
+
+  for (const r of rows) {
+    if (r.day < firstDay || r.day > todayMjd) continue
+    const idx = Math.floor((r.day - firstDay) / 7)
+    const col = cols[idx]
+    if (!col) continue
+    if (r.survey === 'lsst') col.lsst += r.n
+    else if (r.survey === 'ztf') col.ztf += r.n
+    col.total += r.n
+  }
+
+  for (const col of cols) {
+    if (col.total <= 0) continue
+    col.lsstPct = (col.lsst / col.total) * 100
+    col.ztfPct = (col.ztf / col.total) * 100
+  }
+
+  return cols
 }

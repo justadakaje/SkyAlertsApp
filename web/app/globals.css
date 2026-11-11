@@ -1147,6 +1147,37 @@ code {
   margin-top: 12px;
 }
 
+/* Home notable highlights */
+.highlights-section {
+  margin: 0 0 24px;
+}
+
+.highlights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.highlight-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.highlight-card h3 {
+  margin: 4px 0 6px;
+  font-size: 1.05rem;
+}
+
+.highlight-meta {
+  margin: 0 0 6px;
+}
+
+.highlight-card p:last-child {
+  margin-bottom: 0;
+}
+
 .stamp-card {
   margin: 0;
   padding: 12px;

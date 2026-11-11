@@ -9,6 +9,8 @@ import {
   formatObjectDescription,
   formatProbability,
   formatUtc,
+  humanBrightness,
+  pickHomeHighlights,
 } from '@/lib/format'
 
 const now = new Date('2026-11-01T12:00:00Z')
@@ -65,5 +67,67 @@ describe('format', () => {
       const labels = items.map((c) => c.label)
       expect(new Set(labels).size).toBe(labels.length)
     }
+  })
+
+  it('translates apparent/difference magnitudes and LSST flux into human brightness scale', () => {
+    expect(humanBrightness(5.8)).toContain('Naked-eye range')
+    expect(humanBrightness(9.2)).toContain('Binocular range')
+    expect(humanBrightness(13.9)).toContain('brighter than Pluto')
+    expect(humanBrightness(16.4)).toContain('Amateur CCD telescope range')
+    expect(humanBrightness(19.5)).toContain('Deep-sky survey camera range')
+    // LSST positive flux 1_000_000 nJy -> AB mag 16.4
+    expect(humanBrightness(null, 1_000_000)).toContain('mag 16.4')
+    expect(humanBrightness(null, -500)).toBeNull()
+    expect(humanBrightness(null, null)).toBeNull()
+  })
+
+  it('picks distinct home highlight cards for transient, solar system, and most active', () => {
+    const cards = pickHomeHighlights(
+      [
+        {
+          survey: 'ztf',
+          oid: 'ZTF26sn1',
+          topClass: 'SNIa',
+          probability: 0.96,
+          classifier: 'lc_classifier',
+          firstmjd: 61340,
+          lastmjd: 61344,
+          ndet: 5,
+          ra: 120,
+          dec: 30,
+        },
+        {
+          survey: 'lsst',
+          oid: '313708285401235521',
+          topClass: 'RRL',
+          probability: 0.91,
+          classifier: 'stamp',
+          firstmjd: 61339,
+          lastmjd: 61344,
+          ndet: 24,
+          ra: 45,
+          dec: -35,
+        },
+      ],
+      [
+        {
+          survey: 'ztf',
+          oid: 'ZTF26nolan',
+          obsMjd: 61342,
+          ssoNumber: 9537,
+          ssoName: 'Nolan',
+          ssoClass: 'MB>Middle',
+          predictedMag: 18.6,
+          sepArcsec: 3.1,
+          geoDistAu: 2.98,
+          helioDistAu: 2.31,
+        },
+      ],
+    )
+    expect(cards.map((c) => [c.kind, c.oid, c.ssoLabel])).toEqual([
+      ['transient', 'ZTF26sn1', null],
+      ['solar', 'ZTF26nolan', '(9537) Nolan'],
+      ['active', '313708285401235521', null],
+    ])
   })
 })

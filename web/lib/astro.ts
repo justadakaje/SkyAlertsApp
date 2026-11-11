@@ -48,6 +48,33 @@ export function galacticToEquatorial(l: number, b: number): { ra: number; dec: n
   return { ra: ((ra % 360) + 360) % 360, dec }
 }
 
+/** Galactic latitude b in degrees (-90..+90) from equatorial J2000 (ra, dec). */
+export function galacticLatitude(ra: number, dec: number): number {
+  const sinDecNgp = Math.sin(NGP_DEC * RAD)
+  const cosDecNgp = Math.cos(NGP_DEC * RAD)
+  const sinDec = Math.sin(dec * RAD)
+  const cosDec = Math.cos(dec * RAD)
+  const dra = (ra - NGP_RA) * RAD
+  const sinB = Math.max(-1, Math.min(1, sinDec * sinDecNgp + cosDec * cosDecNgp * Math.cos(dra)))
+  return Math.asin(sinB) / RAD
+}
+
+/**
+ * Plain-English sky region and visibility summary for mid-northern observers (~40°N).
+ */
+export function skyRegion(ra: number, dec: number): string {
+  const hemisphere = dec >= 0 ? 'Northern sky' : 'Southern sky'
+  const visibility =
+    dec >= 50
+      ? 'circumpolar from ~40°N'
+      : dec > -25
+        ? 'reaches above the ~40°N horizon'
+        : 'southern-hemisphere view (below ~40°N horizon)'
+  const b = galacticLatitude(ra, dec)
+  const plane = Math.abs(b) < 15 ? 'near Milky Way plane' : 'away from galactic plane'
+  return `${hemisphere} · ${visibility} · ${plane}`
+}
+
 function pad(n: number): string {
   return String(n).padStart(2, '0')
 }

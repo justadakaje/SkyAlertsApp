@@ -76,13 +76,14 @@ export const getTrends = unstable_cache(
     const pool = getPool()
     const now = bucketMjd(bucket)
     const todayMjd = Math.floor(now)
-    const [daily, comparison] = await Promise.all([
+    const [daily, surveyDaily, comparison] = await Promise.all([
       q.dailyCounts(pool, todayMjd - 90),
+      q.dailySurveyCounts(pool, todayMjd - 90),
       q.weekComparison(pool, now - 7, now - 14),
     ])
-    return { daily, comparison, todayMjd }
+    return { daily, surveyDaily, comparison, todayMjd }
   },
-  ['trends-v1'],
+  ['trends-v2'],
   opts,
 )
 

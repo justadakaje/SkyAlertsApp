@@ -139,4 +139,8 @@ Format: date · decision · why · reversibility. Newest at the bottom. Items ma
 - **Security gate gaps** (`docs/security-checklist.md`, verified 2026-11-02):
   - In the `main` ruleset, require linear history, conversation resolution, and the `dependency-review` and `analyze (javascript-typescript)` checks.
   - Confirm the Resend key is "Sending access" for `sky.henseler.app` only.
-  - Wire alerts for ingest failure, error spikes and `admin_sign_in`.
+
+## 31. Spec completion: LSST brightest AB mag, SkyBoT UI & digest, retention policy, and Resend alerts (2026-11-11)
+- **Digest (`digest/`):** `BRIGHTEST_SQL` now converts positive Rubin (LSST) difference flux (`flux_njy > 0`) to AB magnitude (`-2.5 * log10(flux_njy) + 31.4`) so Rubin transients participate alongside ZTF in "Brightest new". `SOLAR_EXAMPLES_SQL` joins `sso_identifications` (`status = 'matched'`) and orders matched asteroids first. `render.py` and `podcast.py` surface SkyBoT designations and deduplicate static class blurbs within each section.
+- **Public web (`web/`):** Added the 3-card "What stood out" highlight strip on `/`, plain-English brightness (`humanBrightness` relative to naked eye, binoculars, and Pluto) and sky-region visibility (`skyRegion` for ~40°N) on object pages, and a 12-week Rubin (LSST) vs. ZTF survey blend chart on `/trends`.
+- **Admin & Retention (`db/`, `ingest/`, `web/app/admin/`):** Added `0007_retention_policy.sql` (`prune_old_artifacts` `SECURITY DEFINER` function pruning un-enriched `bogus` artifacts older than 30 days without granting table-level `DELETE` to `skyalerts_ingest`), a Neon 512 MB free-tier storage gauge + SkyBoT status counts + manual `identify.rerun` button on `/admin`, and Resend owner alert emails on ingest failures/error spikes and `admin_sign_in` / `auth.sign_in_denied`.

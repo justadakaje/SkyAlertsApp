@@ -60,7 +60,20 @@ def _fmt_mag(mag: float | None, band: str | None) -> str | None:
     return f"mag {mag:.2f}"
 
 
-def _md_object_line(obj: DigestObject, *, show_mag: bool = False) -> str:
+def _fmt_sso_label(sso_name: str | None, sso_number: int | None) -> str | None:
+    if not sso_name:
+        return None
+    trimmed = sso_name.strip()
+    if not trimmed:
+        return None
+    if sso_number is not None and not trimmed.startswith("("):
+        return f"({sso_number}) {trimmed}"
+    return trimmed
+
+
+def _md_object_line(
+    obj: DigestObject, *, show_mag: bool = False, include_blurb: bool = True
+) -> str:
     info = class_info(obj.top_class)
     url = _esc_md_url(object_url(obj.survey, obj.oid))
     oid = _esc_md(obj.oid)
@@ -78,7 +91,7 @@ def _md_object_line(obj: DigestObject, *, show_mag: bool = False) -> str:
         details.append(f"{obj.ndet} detections")
 
     line = f"- **[{oid}]({url})** ({survey}) — {', '.join(details)}."
-    if info.blurb:
+    if include_blurb and info.blurb:
         line += f" {_esc_md(info.blurb)}"
     return line
 
@@ -102,14 +115,20 @@ def render_markdown(d: Digest) -> str:
     else:
         if d.headliners:
             lines.extend(["## Headliners", ""])
+            seen_hl_classes: set[str | None] = set()
             for obj in d.headliners:
-                lines.append(_md_object_line(obj))
+                show_blurb = obj.top_class not in seen_hl_classes
+                seen_hl_classes.add(obj.top_class)
+                lines.append(_md_object_line(obj, include_blurb=show_blurb))
             lines.append("")
 
         if d.brightest:
             lines.extend(["## Brightest new", ""])
+            seen_br_classes: set[str | None] = set()
             for obj in d.brightest:
-                lines.append(_md_object_line(obj, show_mag=True))
+                show_blurb = obj.top_class not in seen_br_classes
+                seen_br_classes.add(obj.top_class)
+                lines.append(_md_object_line(obj, show_mag=True, include_blurb=show_blurb))
             lines.append("")
 
         lines.extend(["## Solar system", ""])
@@ -124,7 +143,19 @@ def render_markdown(d: Digest) -> str:
                 lines.append("")
                 for ex in d.solar_system.examples:
                     url = _esc_md_url(object_url(ex.survey, ex.oid))
-                    lines.append(f"- [{_esc_md(ex.oid)}]({url}) ({_esc_md(ex.survey.upper())})")
+                    sso_label = _fmt_sso_label(ex.sso_name, ex.sso_number)
+                    if sso_label:
+                        sep_part = (
+                            f" — matched within {ex.sep_arcsec:.1f}″ by SkyBoT"
+                            if ex.sep_arcsec is not None
+                            else ""
+                        )
+                        lines.append(
+                            f"- **{_esc_md(sso_label)}** · "
+                            f"[{_esc_md(ex.oid)}]({url}) ({_esc_md(ex.survey.upper())}){sep_part}"
+                        )
+                    else:
+                        lines.append(f"- [{_esc_md(ex.oid)}]({url}) ({_esc_md(ex.survey.upper())})")
         else:
             lines.append("No asteroids recorded this week.")
         lines.append("")
@@ -148,7 +179,9 @@ def render_markdown(d: Digest) -> str:
     return "\n".join(lines)
 
 
-def _html_object_item(obj: DigestObject, *, show_mag: bool = False) -> str:
+def _html_object_item(
+    obj: DigestObject, *, show_mag: bool = False, include_blurb: bool = True
+) -> str:
     info = class_info(obj.top_class)
     url = _esc_html(object_url(obj.survey, obj.oid))
     oid = _esc_html(obj.oid)
@@ -166,7 +199,7 @@ def _html_object_item(obj: DigestObject, *, show_mag: bool = False) -> str:
     if obj.ndet is not None:
         details.append(_esc_html(f"{obj.ndet} detections"))
 
-    blurb_html = f" {_esc_html(info.blurb)}" if info.blurb else ""
+    blurb_html = f" {_esc_html(info.blurb)}" if include_blurb and info.blurb else ""
     return (
         f'<li><a href="{url}"><strong>{oid}</strong></a> ({survey}) — '
         f"{', '.join(details)}.{blurb_html}</li>"
@@ -191,15 +224,21 @@ def render_html(d: Digest) -> str:
         if d.headliners:
             parts.append("<h2>Headliners</h2>")
             parts.append("<ul>")
+            seen_hl_classes: set[str | None] = set()
             for obj in d.headliners:
-                parts.append(_html_object_item(obj))
+                show_blurb = obj.top_class not in seen_hl_classes
+                seen_hl_classes.add(obj.top_class)
+                parts.append(_html_object_item(obj, include_blurb=show_blurb))
             parts.append("</ul>")
 
         if d.brightest:
             parts.append("<h2>Brightest new</h2>")
             parts.append("<ul>")
+            seen_br_classes: set[str | None] = set()
             for obj in d.brightest:
-                parts.append(_html_object_item(obj, show_mag=True))
+                show_blurb = obj.top_class not in seen_br_classes
+                seen_br_classes.add(obj.top_class)
+                parts.append(_html_object_item(obj, show_mag=True, include_blurb=show_blurb))
             parts.append("</ul>")
 
         parts.append("<h2>Solar system</h2>")
@@ -216,7 +255,19 @@ def render_html(d: Digest) -> str:
                     url = _esc_html(object_url(ex.survey, ex.oid))
                     oid = _esc_html(ex.oid)
                     survey = _esc_html(ex.survey.upper())
-                    parts.append(f'<li><a href="{url}">{oid}</a> ({survey})</li>')
+                    sso_label = _fmt_sso_label(ex.sso_name, ex.sso_number)
+                    if sso_label:
+                        sep_part = (
+                            f" — matched within {ex.sep_arcsec:.1f}&Prime; by SkyBoT"
+                            if ex.sep_arcsec is not None
+                            else ""
+                        )
+                        parts.append(
+                            f"<li><strong>{_esc_html(sso_label)}</strong> &middot; "
+                            f'<a href="{url}">{oid}</a> ({survey}){sep_part}</li>'
+                        )
+                    else:
+                        parts.append(f'<li><a href="{url}">{oid}</a> ({survey})</li>')
                 parts.append("</ul>")
         else:
             parts.append("<p>No asteroids recorded this week.</p>")

@@ -76,7 +76,7 @@ def _cold_open(d: Digest, window: str) -> str:
     )
 
 
-def _headliner_sentence(obj: DigestObject) -> str:
+def _headliner_sentence(obj: DigestObject, *, include_blurb: bool = True) -> str:
     info = class_info(obj.top_class)
     oid = _clean_text(obj.oid) or "unknown object"
     survey = _clean_text(obj.survey.upper()) or "SURVEY"
@@ -90,12 +90,12 @@ def _headliner_sentence(obj: DigestObject) -> str:
         det_word = "detection" if obj.ndet == 1 else "detections"
         parts.append(f"across {obj.ndet} {det_word}")
     sentence = f"- {' '.join(parts)}."
-    if info.blurb:
+    if include_blurb and info.blurb:
         sentence += f" {info.blurb}"
     return sentence
 
 
-def _brightest_sentence(obj: DigestObject) -> str:
+def _brightest_sentence(obj: DigestObject, *, include_blurb: bool = True) -> str:
     info = class_info(obj.top_class)
     oid = _clean_text(obj.oid) or "unknown object"
     survey = _clean_text(obj.survey.upper()) or "SURVEY"
@@ -112,9 +112,21 @@ def _brightest_sentence(obj: DigestObject) -> str:
 
     conf_part = f" ({conf} confidence)" if conf else ""
     sentence = f"- {oid} ({survey}), {_article_for(label)} {label}{conf_part},{mag_clause}."
-    if info.blurb:
+    if include_blurb and info.blurb:
         sentence += f" {info.blurb}"
     return sentence
+
+
+def _spoken_asteroid_example(ex: DigestObject) -> str:
+    oid = _clean_text(ex.oid) or "object"
+    survey = _clean_text(ex.survey.upper()) or "SURVEY"
+    if ex.sso_name:
+        name = _clean_text(ex.sso_name)
+        if name:
+            if ex.sso_number is not None:
+                return f"asteroid {ex.sso_number} {name} ({oid}, {survey})"
+            return f"asteroid {name} ({oid}, {survey})"
+    return f"{oid} ({survey})"
 
 
 def _collect_show_notes(d: Digest) -> list[tuple[str, str]]:
@@ -150,8 +162,11 @@ def render_podcast(digest: Digest) -> str:
     ]
 
     if digest.headliners:
+        seen_hl_classes: set[str | None] = set()
         for obj in digest.headliners:
-            lines.append(_headliner_sentence(obj))
+            show_blurb = obj.top_class not in seen_hl_classes
+            seen_hl_classes.add(obj.top_class)
+            lines.append(_headliner_sentence(obj, include_blurb=show_blurb))
     else:
         lines.append(
             "It was a quiet week for major cosmic explosions — no new supernovae, "
@@ -161,8 +176,11 @@ def render_podcast(digest: Digest) -> str:
 
     lines.extend(["## Brightest new", ""])
     if digest.brightest:
+        seen_br_classes: set[str | None] = set()
         for obj in digest.brightest:
-            lines.append(_brightest_sentence(obj))
+            show_blurb = obj.top_class not in seen_br_classes
+            seen_br_classes.add(obj.top_class)
+            lines.append(_brightest_sentence(obj, include_blurb=show_blurb))
     else:
         lines.append("No new bright transients stood out in the photometry this week.")
     lines.append("")
@@ -178,8 +196,7 @@ def render_podcast(digest: Digest) -> str:
         )
         if digest.solar_system.examples:
             example_names = ", ".join(
-                f"{_clean_text(ex.oid)} ({_clean_text(ex.survey.upper())})"
-                for ex in digest.solar_system.examples
+                _spoken_asteroid_example(ex) for ex in digest.solar_system.examples
             )
             lines.append(f"Notable tracks include {example_names}.")
     else:

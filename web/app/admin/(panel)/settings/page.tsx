@@ -17,9 +17,10 @@ export default async function SettingsPage() {
     ['Session signing secret', true, 'ADMIN_SESSION_SECRET'],
     ['Admin database role', Boolean(process.env.ADMIN_DATABASE_URL), 'ADMIN_DATABASE_URL (skyalerts_web_admin)'],
     ['Public database role', Boolean(process.env.DATABASE_URL), 'DATABASE_URL (skyalerts_ro)'],
-    ['Manual ingest trigger', trigger !== null, 'MANUAL_TRIGGER_URL / MANUAL_TRIGGER_SECRET'],
+    ['Manual ingest & SkyBoT trigger', trigger !== null, 'MANUAL_TRIGGER_URL / MANUAL_TRIGGER_SECRET'],
     ['Ingest protection bypass', Boolean(trigger?.bypass), 'MANUAL_TRIGGER_BYPASS (needed while ingest URLs are behind Vercel Auth)'],
     ['Digest preview & send', digest !== null, 'DIGEST_URL / DIGEST_TRIGGER_SECRET'],
+    ['Owner alert emails', Boolean(process.env.RESEND_API_KEY && (process.env.ALERT_TO || process.env.DIGEST_TO)), 'RESEND_API_KEY + ALERT_TO / DIGEST_TO'],
   ]
   return (
     <>

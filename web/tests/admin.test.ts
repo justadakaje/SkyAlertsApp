@@ -10,7 +10,8 @@ import {
   sendDigestHref,
 } from '@/lib/admin/digest'
 import { ingestHealth } from '@/lib/admin/health'
-import { insertAudit, listRuns, type RunRow } from '@/lib/admin/queries'
+import { dataTotals, insertAudit, listRuns, type RunRow } from '@/lib/admin/queries'
+import { identifyTriggerUrl } from '@/lib/auth/config'
 import type { Db } from '@/lib/queries'
 
 const NOW = 1_793_000_000
@@ -81,6 +82,30 @@ describe('admin queries', () => {
     await listRuns(db, 10_000)
     await listRuns(db, -3)
     expect(calls.map((c) => c.params[0])).toEqual([500, 1])
+  })
+
+  it('queries Neon DB storage size and SkyBoT counts in dataTotals', async () => {
+    const { db, calls } = fakeDb()
+    const res = await dataTotals(db)
+    expect(calls[0]!.text).toContain('pg_database_size(current_database())')
+    expect(calls[0]!.text).toContain('sso_identifications')
+    expect(res).toEqual({
+      objects: 0,
+      classifications: 0,
+      detections: 0,
+      enrichedObjects: 0,
+      dbSizeBytes: 0,
+      ssoMatched: 0,
+      ssoNoMatch: 0,
+      ssoError: 0,
+      ssoPending: 0,
+    })
+  })
+
+  it('derives the manual SkyBoT identification URL from MANUAL_TRIGGER_URL', () => {
+    expect(identifyTriggerUrl('https://skyalerts-ingest.vercel.app/api/manual/ingest')).toBe(
+      'https://skyalerts-ingest.vercel.app/api/manual/identify',
+    )
   })
 })
 

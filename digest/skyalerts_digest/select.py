@@ -41,19 +41,28 @@ SELECT survey, oid, top_class, top_probability, firstmjd, lastmjd, ndet
 
 BRIGHTEST_SQL = """
 SELECT o.survey, o.oid, o.top_class, o.top_probability, o.firstmjd, o.lastmjd, o.ndet,
-       d.mag AS peak_mag, d.band AS peak_band
+       d.eff_mag AS peak_mag, d.band AS peak_band
   FROM objects o
   JOIN (
-      SELECT DISTINCT ON (survey, oid) survey, oid, mag, band
+      SELECT DISTINCT ON (survey, oid)
+             survey,
+             oid,
+             COALESCE(mag, (-2.5 * log10(flux_njy) + 31.4)::real) AS eff_mag,
+             band
         FROM detections
        WHERE mag IS NOT NULL
-       ORDER BY survey, oid, mag ASC, mjd DESC, measurement_id ASC
+          OR (flux_njy IS NOT NULL AND flux_njy > 0)
+       ORDER BY survey,
+                oid,
+                COALESCE(mag, (-2.5 * log10(flux_njy) + 31.4)::real) ASC,
+                mjd DESC,
+                measurement_id ASC
   ) d ON d.survey = o.survey AND d.oid = o.oid
  WHERE o.firstmjd >= %s
    AND o.firstmjd <= %s
    AND o.top_class IS DISTINCT FROM %s
    AND o.top_class IS DISTINCT FROM %s
- ORDER BY d.mag ASC,
+ ORDER BY d.eff_mag ASC,
           o.top_probability DESC NULLS LAST,
           o.lastmjd DESC NULLS LAST,
           o.survey ASC,
@@ -70,15 +79,22 @@ SELECT count(*)::int
 """
 
 SOLAR_EXAMPLES_SQL = """
-SELECT survey, oid, top_class, top_probability, firstmjd, lastmjd, ndet
-  FROM objects
- WHERE firstmjd >= %s
-   AND firstmjd <= %s
-   AND top_class = %s
- ORDER BY top_probability DESC NULLS LAST,
-          lastmjd DESC NULLS LAST,
-          survey ASC,
-          oid ASC
+SELECT o.survey, o.oid, o.top_class, o.top_probability, o.firstmjd, o.lastmjd, o.ndet,
+       NULL::real AS peak_mag, NULL::text AS peak_band,
+       s.sso_name, s.sso_number, s.sep_arcsec
+  FROM objects o
+  LEFT JOIN sso_identifications s
+    ON s.survey = o.survey
+   AND s.oid = o.oid
+   AND s.status = 'matched'
+ WHERE o.firstmjd >= %s
+   AND o.firstmjd <= %s
+   AND o.top_class = %s
+ ORDER BY (s.sso_name IS NOT NULL) DESC,
+          o.top_probability DESC NULLS LAST,
+          o.lastmjd DESC NULLS LAST,
+          o.survey ASC,
+          o.oid ASC
  LIMIT %s
 """
 
@@ -125,6 +141,9 @@ class DigestObject:
     ndet: int | None = None
     peak_mag: float | None = None
     peak_band: str | None = None
+    sso_name: str | None = None
+    sso_number: int | None = None
+    sep_arcsec: float | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +205,9 @@ def _row_to_object(row: tuple[Any, ...]) -> DigestObject:
     survey, oid, top_class, top_prob, firstmjd, lastmjd, ndet = row[:7]
     peak_mag = float(row[7]) if len(row) > 7 and row[7] is not None else None
     peak_band = str(row[8]) if len(row) > 8 and row[8] is not None else None
+    sso_name = str(row[9]) if len(row) > 9 and row[9] is not None else None
+    sso_number = int(row[10]) if len(row) > 10 and row[10] is not None else None
+    sep_arcsec = float(row[11]) if len(row) > 11 and row[11] is not None else None
     return DigestObject(
         survey=str(survey),
         oid=str(oid),
@@ -196,6 +218,9 @@ def _row_to_object(row: tuple[Any, ...]) -> DigestObject:
         ndet=int(ndet) if ndet is not None else None,
         peak_mag=peak_mag,
         peak_band=peak_band,
+        sso_name=sso_name,
+        sso_number=sso_number,
+        sep_arcsec=sep_arcsec,
     )
 
 

@@ -46,9 +46,9 @@ Derived from SPEC §Security. A phase ships to production only when every applic
 - [x] Session cookies `Secure; HttpOnly; SameSite=Lax|Strict`, short TTL (`__Host-` prefix, Lax, 8 h)
 - [x] CSRF protection on admin mutations (session-bound token, checked by `requireAdminForm()`)
 - [x] Audit log table records every admin action
-  - Sign-in, denied sign-in, sign-out, `ingest.rerun` and `digest.send`. The audit row is written before the side effect.
-- [ ] Alerts on admin sign-in
-  - **Gap:** each sign-in writes an `admin_sign_in` log line (#27), but no alert is wired to it yet.
+  - Sign-in, denied sign-in, sign-out, `ingest.rerun`, `identify.rerun`, and `digest.send`. The audit row is written before the side effect.
+- [x] Alerts on admin sign-in
+  - `web/app/api/auth/github/callback/route.ts` emits a structured `admin_sign_in` log line and dispatches an owner alert email via Resend (`alerts@sky.henseler.app` to `ALERT_TO` / `DIGEST_TO`) on both `admin_sign_in` and `auth.sign_in_denied` when `RESEND_API_KEY` is configured.
 
 ## Email (Phase 3)
 - [ ] Resend key scoped to sending only, sending subdomain only
@@ -59,5 +59,6 @@ Derived from SPEC §Security. A phase ships to production only when every applic
   - DMARC is `p=none` (monitoring only); move to `p=quarantine` once a few weeks of reports look clean.
 
 ## Monitoring
-- [ ] Alerts on ingest failure, error spikes, admin sign-in
-  - **Gap:** none are wired. `/admin` shows ingest health, but nothing pushes an alert.
+- [x] Alerts on ingest failure, error spikes, admin sign-in
+  - `ingest/skyalerts_ingest/ingest.py` (`notify_ingest_alert`) sends an owner alert email via Resend whenever an ingest run finishes with `status == 'failed'` or `error_count >= 5`.
+  - `web/app/api/auth/github/callback/route.ts` (`notifyAuthAlert`) sends an owner alert email via Resend on `admin_sign_in` and `auth.sign_in_denied`.

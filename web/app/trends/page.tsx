@@ -1,16 +1,17 @@
 import type { Metadata } from 'next'
 
-import { DailyMultiplesChart, WeeklyMixChart } from '@/components/TrendsCharts'
+import { DailyMultiplesChart, WeeklyMixChart, WeeklySurveyMixChart } from '@/components/TrendsCharts'
 import { getTrends, timeBucket } from '@/lib/data'
 import { formatCount } from '@/lib/format'
-import { dailyMultiples, formatChange, weeklyMix } from '@/lib/trends'
+import { dailyMultiples, formatChange, weeklyMix, weeklySurveyMix } from '@/lib/trends'
 
 export const metadata: Metadata = { title: 'Trends' }
 
 export default async function TrendsPage() {
-  const { daily, comparison, todayMjd } = await getTrends(timeBucket())
+  const { daily, surveyDaily, comparison, todayMjd } = await getTrends(timeBucket())
   const multiples = dailyMultiples(daily, todayMjd, 90)
   const weeks = weeklyMix(daily, todayMjd, 12)
+  const surveyWeeks = weeklySurveyMix(surveyDaily, todayMjd, 12)
 
   return (
     <>
@@ -43,6 +44,11 @@ export default async function TrendsPage() {
       <section className="panel" aria-labelledby="mix-heading">
         <h2 id="mix-heading">Weekly class mix (last 12 weeks)</h2>
         <WeeklyMixChart weeks={weeks} />
+      </section>
+
+      <section className="panel" aria-labelledby="survey-mix-heading">
+        <h2 id="survey-mix-heading">Observatory blend: Rubin (LSST) vs. ZTF (last 12 weeks)</h2>
+        <WeeklySurveyMixChart weeks={surveyWeeks} />
       </section>
     </>
   )

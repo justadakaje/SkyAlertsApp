@@ -91,11 +91,18 @@ export async function listAudit(db: Db, limit: number): Promise<AuditRow[]> {
   return rows
 }
 
+export const NEON_FREE_LIMIT_BYTES = 512 * 1024 * 1024
+
 export interface DataTotals {
   objects: number
   classifications: number
   detections: number
   enrichedObjects: number
+  dbSizeBytes: number
+  ssoMatched: number
+  ssoNoMatch: number
+  ssoError: number
+  ssoPending: number
 }
 
 export async function dataTotals(db: Db): Promise<DataTotals> {
@@ -103,7 +110,30 @@ export async function dataTotals(db: Db): Promise<DataTotals> {
     `SELECT (SELECT count(*) FROM objects)::int AS objects,
             (SELECT count(*) FROM classifications)::int AS classifications,
             (SELECT count(*) FROM detections)::int AS detections,
-            (SELECT count(*) FROM objects WHERE enriched_at IS NOT NULL)::int AS "enrichedObjects"`,
+            (SELECT count(*) FROM objects WHERE enriched_at IS NOT NULL)::int AS "enrichedObjects",
+            pg_database_size(current_database())::float8 AS "dbSizeBytes",
+            (SELECT count(*) FROM sso_identifications WHERE status = 'matched')::int AS "ssoMatched",
+            (SELECT count(*) FROM sso_identifications WHERE status = 'no_match')::int AS "ssoNoMatch",
+            (SELECT count(*) FROM sso_identifications WHERE status = 'error')::int AS "ssoError",
+            (SELECT count(*) FROM objects o
+              WHERE o.top_class = 'asteroid'
+                AND o.meanra IS NOT NULL AND o.meandec IS NOT NULL AND o.firstmjd IS NOT NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM sso_identifications s
+                   WHERE s.survey = o.survey AND s.oid = o.oid AND s.status IN ('matched', 'no_match')
+                ))::int AS "ssoPending"`,
   )
-  return rows[0] ?? { objects: 0, classifications: 0, detections: 0, enrichedObjects: 0 }
+  return (
+    rows[0] ?? {
+      objects: 0,
+      classifications: 0,
+      detections: 0,
+      enrichedObjects: 0,
+      dbSizeBytes: 0,
+      ssoMatched: 0,
+      ssoNoMatch: 0,
+      ssoError: 0,
+      ssoPending: 0,
+    }
+  )
 }
