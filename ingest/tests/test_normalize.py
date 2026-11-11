@@ -137,7 +137,7 @@ def test_ztf_detections_live_fixture():
         assert det.mag_err == pytest.approx(row["sigmapsf"])
         assert det.flux_njy is None and det.flux_err_njy is None
         assert set(det.raw) <= set(ZTF_RAW_KEYS)
-        assert "candid" in det.raw and "magap" not in det.raw
+        assert "candid" in det.raw and "has_stamp" in det.raw and "magap" not in det.raw
 
 
 def test_lsst_negative_or_zero_flux_gives_mag_none():

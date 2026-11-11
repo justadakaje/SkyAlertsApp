@@ -10,6 +10,7 @@ describe('content security policy', () => {
     const csp = buildCsp('abc123', false)
     expect(csp).toContain("script-src 'self' 'nonce-abc123' 'strict-dynamic'")
     expect(csp).toContain("style-src 'self' 'nonce-abc123'")
+    expect(csp).toContain("img-src 'self' data: https://avro.alerce.online")
     expect(csp).toContain("frame-ancestors 'none'")
     expect(csp).toContain("object-src 'none'")
     expect(csp).toContain('upgrade-insecure-requests')

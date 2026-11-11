@@ -2,15 +2,19 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Suspense } from 'react'
 
+import { objectHref } from '@/components/EventTable'
 import { SkyMap } from '@/components/SkyMap'
-import { formatDec, formatRa } from '@/lib/astro'
-import { getClassCounts, getSolarEphemerides, timeBucket } from '@/lib/data'
-import { formatCount } from '@/lib/format'
+import { formatDec, formatRa, mjdToDate } from '@/lib/astro'
+import { getClassCounts, getMatchedAsteroids, getSolarEphemerides, timeBucket } from '@/lib/data'
+import { formatCount, formatUtc } from '@/lib/format'
+import type { MatchedAsteroidRow } from '@/lib/queries'
 import {
   CONSTELLATIONS,
   type Ephemeris,
   formatPeriod,
   formatRotation,
+  formatSsoLabel,
+  jplSbdbUrl,
   jplUrl,
   orbitviewerUrl,
   SOLAR_BODIES,
@@ -232,9 +236,14 @@ function BodyCard({ body: b }: { body: SolarBody }) {
 
 async function AsteroidAlerts() {
   let n = 0
+  let matched: MatchedAsteroidRow[] = []
   try {
-    const counts = await getClassCounts(null, '7d', timeBucket())
+    const [counts, rows] = await Promise.all([
+      getClassCounts(null, '7d', timeBucket()),
+      getMatchedAsteroids(25),
+    ])
     n = counts.find((c) => c.topClass === 'asteroid')?.n ?? 0
+    matched = rows
   } catch {
     return null
   }
@@ -243,9 +252,78 @@ async function AsteroidAlerts() {
       <h2 id="alerts-heading">Asteroid alerts this week</h2>
       <p className="small">
         <Link href="/?class=asteroid&window=7d">{formatCount(n)} alerts</Link> in the last 7 days were classified as
-        asteroids. Each is a machine-learning guess from a single image, and most are not yet matched to a known object.
-        Naming them, by checking which known asteroid was at that spot at that moment, is coming next.
+        asteroids. Each is a machine-learning guess from a single image; Sky Alerts checks top candidates against{' '}
+        <a href="https://ssp.imcce.fr/webservices/skybot/" {...EXT}>
+          IMCCE SkyBoT
+        </a>{' '}
+        to identify which known asteroid was within 10″ of that spot at the moment of detection.
       </p>
+      {matched.length > 0 ? (
+        <div className="table-scroll">
+          <table className="events">
+            <thead>
+              <tr>
+                <th scope="col">Asteroid</th>
+                <th scope="col">Alert</th>
+                <th scope="col">Orbit class</th>
+                <th scope="col" className="num">
+                  Separation
+                </th>
+                <th scope="col" className="num">
+                  Predicted mag
+                </th>
+                <th scope="col" className="num">
+                  Earth / Sun dist.
+                </th>
+                <th scope="col">Observed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matched.map((m) => {
+                const label = formatSsoLabel(m.ssoNumber, m.ssoName)
+                const sbdb = jplSbdbUrl(m.ssoNumber, m.ssoName)
+                const obsDate = Number.isFinite(m.obsMjd) ? mjdToDate(m.obsMjd) : null
+                return (
+                  <tr key={`${m.survey}/${m.oid}`}>
+                    <th scope="row">
+                      {sbdb ? (
+                        <a href={sbdb} {...EXT}>
+                          {label} ↗
+                        </a>
+                      ) : (
+                        label
+                      )}
+                    </th>
+                    <td>
+                      <Link className="oid" href={objectHref(m.survey, m.oid)}>
+                        {m.oid}
+                      </Link>
+                      <span className="survey-tag">{m.survey.toUpperCase()}</span>
+                    </td>
+                    <td>{m.ssoClass ?? '—'}</td>
+                    <td className="num">{m.sepArcsec.toFixed(2)}″</td>
+                    <td className="num">{m.predictedMag !== null ? m.predictedMag.toFixed(1) : '—'}</td>
+                    <td className="num">
+                      {m.geoDistAu !== null && m.helioDistAu !== null
+                        ? `${m.geoDistAu.toFixed(2)} / ${m.helioDistAu.toFixed(2)} au`
+                        : m.geoDistAu !== null
+                          ? `${m.geoDistAu.toFixed(2)} au`
+                          : m.helioDistAu !== null
+                            ? `${m.helioDistAu.toFixed(2)} au`
+                            : '—'}
+                    </td>
+                    <td className="small">
+                      {obsDate ? <time dateTime={obsDate.toISOString()}>{formatUtc(obsDate)}</time> : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted small">No asteroid alerts have been matched to a catalogued object yet.</p>
+      )}
     </section>
   )
 }

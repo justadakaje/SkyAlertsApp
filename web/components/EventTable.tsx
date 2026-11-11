@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { mjdToDate } from '@/lib/astro'
 import { formatAgo, formatProbability, formatUtc } from '@/lib/format'
 import type { EventRow } from '@/lib/queries'
+import { formatSsoLabel } from '@/lib/solar'
 
 import { ClassBadge } from './ClassBadge'
 
@@ -41,6 +42,11 @@ export function EventTable({ rows, now }: { rows: EventRow[]; now: Date }) {
                     {r.oid}
                   </Link>
                   <span className="survey-tag">{r.survey.toUpperCase()}</span>
+                  {r.ssoName ? (
+                    <span className="sso-tag" title="Identified Solar System object">
+                      {formatSsoLabel(r.ssoNumber ?? null, r.ssoName)}
+                    </span>
+                  ) : null}
                 </td>
                 <td>
                   <ClassBadge name={r.topClass} />

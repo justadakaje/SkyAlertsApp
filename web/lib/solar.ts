@@ -258,6 +258,25 @@ export function jplUrl(b: SolarBody): string {
   return `https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=${b.number}`
 }
 
+const SAFE_SSO_NAME_RE = /^[A-Za-z0-9 ()/_.'-]{1,64}$/
+
+export function formatSsoLabel(ssoNumber: number | null, ssoName: string): string {
+  return ssoNumber !== null && Number.isInteger(ssoNumber) && ssoNumber >= 1
+    ? `(${ssoNumber}) ${ssoName}`
+    : ssoName
+}
+
+export function jplSbdbUrl(ssoNumber: number | null, ssoName?: string | null): string | null {
+  if (ssoNumber !== null && Number.isInteger(ssoNumber) && ssoNumber >= 1) {
+    return `https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=${ssoNumber}`
+  }
+  const clean = ssoName?.trim() ?? ''
+  if (clean && SAFE_SSO_NAME_RE.test(clean)) {
+    return `https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=${encodeURIComponent(clean)}`
+  }
+  return null
+}
+
 export function formatPeriod(days: number): string {
   const years = days / 365.25
   if (years < 10) return `${years.toFixed(1)} years`

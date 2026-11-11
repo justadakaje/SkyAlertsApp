@@ -1110,3 +1110,66 @@ code {
   gap: 6px 16px;
   margin-bottom: 0;
 }
+
+.sso-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--group-solar);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.sso-callout {
+  border-left: 4px solid var(--group-solar);
+}
+
+.sso-facts {
+  margin-top: 12px;
+}
+
+.sso-facts > div {
+  background: var(--surface-2);
+}
+
+.sso-links {
+  margin: 12px 0 0;
+}
+
+/* ZTF stamp cutouts */
+.stamp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.stamp-card {
+  margin: 0;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.stamp-card img {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  height: auto;
+  aspect-ratio: 1;
+  margin: 0 auto 8px;
+  border-radius: calc(var(--radius) - 2px);
+  background: #000;
+  image-rendering: pixelated;
+}
+
+.stamp-card figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

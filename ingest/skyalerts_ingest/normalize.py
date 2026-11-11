@@ -27,6 +27,7 @@ ZTF_RAW_KEYS: tuple[str, ...] = (
     "magpsf_corr",
     "sigmapsf_corr",
     "corrected",
+    "has_stamp",
 )
 LSST_RAW_KEYS: tuple[str, ...] = (
     "band",

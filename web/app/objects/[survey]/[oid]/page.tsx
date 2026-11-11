@@ -5,13 +5,14 @@ import { ClassBadge } from '@/components/ClassBadge'
 import { LightCurve } from '@/components/LightCurve'
 import { Probabilities } from '@/components/Probabilities'
 import { SkyMap } from '@/components/SkyMap'
-import { alerceUrl } from '@/lib/alerce'
+import { alerceUrl, buildZtfStamps } from '@/lib/alerce'
 import { formatDec, formatRa, mjdToDate } from '@/lib/astro'
 import { classInfo } from '@/lib/classes'
 import { getObjectPage } from '@/lib/data'
 import { isSurvey, isValidOid } from '@/lib/filters'
 import { formatAgo, formatObjectDescription, formatProbability, formatUtc } from '@/lib/format'
 import { buildCurve } from '@/lib/lightcurve'
+import { formatSsoLabel, jplSbdbUrl } from '@/lib/solar'
 
 type Params = Promise<{ survey: string; oid: string }>
 
@@ -21,8 +22,11 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   try {
     const data = await getObjectPage(survey, oid)
     if (!data) return { title: oid }
-    const { object } = data
-    const title = `${classInfo(object.topClass).label} · ${object.oid}`
+    const { object, sso } = data
+    const ssoLabel = sso?.status === 'matched' && sso.ssoName ? formatSsoLabel(sso.ssoNumber, sso.ssoName) : null
+    const title = ssoLabel
+      ? `${ssoLabel} · ${classInfo(object.topClass).label} · ${object.oid}`
+      : `${classInfo(object.topClass).label} · ${object.oid}`
     const description = formatObjectDescription(object)
     return {
       title,
@@ -41,9 +45,13 @@ export default async function ObjectPage({ params }: { params: Params }) {
   const data = await getObjectPage(survey, oid)
   if (!data) notFound()
 
-  const { object: o, classifications, detections } = data
+  const { object: o, classifications, detections, sso } = data
   const info = classInfo(o.topClass)
   const curve = buildCurve(survey, detections)
+  const stamps = survey === 'ztf' ? buildZtfStamps(o.oid, detections) : null
+  const matchedSso = sso?.status === 'matched' && sso.ssoName ? sso : null
+  const ssoLabel = matchedSso && matchedSso.ssoName ? formatSsoLabel(matchedSso.ssoNumber, matchedSso.ssoName) : null
+  const sbdbUrl = matchedSso ? jplSbdbUrl(matchedSso.ssoNumber, matchedSso.ssoName) : null
   const now = new Date()
   const first = o.firstmjd === null ? null : mjdToDate(o.firstmjd)
   const last = o.lastmjd === null ? null : mjdToDate(o.lastmjd)
@@ -56,6 +64,7 @@ export default async function ObjectPage({ params }: { params: Params }) {
         <p className="object-class">
           <ClassBadge name={o.topClass} />
           {o.probability !== null ? <span className="muted"> {formatProbability(o.probability)} confidence</span> : null}
+          {ssoLabel ? <span className="sso-tag">{ssoLabel}</span> : null}
         </p>
         {info.blurb ? <p className="lede">{info.blurb}</p> : null}
         <p>
@@ -93,6 +102,97 @@ export default async function ObjectPage({ params }: { params: Params }) {
           ) : null}
         </div>
       </dl>
+
+      {matchedSso && ssoLabel ? (
+        <section aria-labelledby="sso-heading" className="panel sso-callout">
+          <h2 id="sso-heading">Solar System identification</h2>
+          <p className="small">
+            Matched to known asteroid <strong>{ssoLabel}</strong> via{' '}
+            <a href="https://ssp.imcce.fr/webservices/skybot/" target="_blank" rel="noopener noreferrer">
+              IMCCE SkyBoT
+            </a>
+            .
+          </p>
+          <dl className="facts sso-facts">
+            <div>
+              <dt>Identified object</dt>
+              <dd>{ssoLabel}</dd>
+              {matchedSso.ssoClass ? <dd className="muted small">Orbit class: {matchedSso.ssoClass}</dd> : null}
+            </div>
+            <div>
+              <dt>Angular separation</dt>
+              <dd className="num">
+                {matchedSso.sepArcsec !== null ? `${matchedSso.sepArcsec.toFixed(2)}″` : '—'}
+              </dd>
+              <dd className="muted small num">at MJD {matchedSso.obsMjd.toFixed(5)}</dd>
+            </div>
+            <div>
+              <dt>Predicted magnitude</dt>
+              <dd className="num">
+                {matchedSso.predictedMag !== null ? `V ≈ ${matchedSso.predictedMag.toFixed(1)}` : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Distance (Earth / Sun)</dt>
+              <dd className="num">
+                {matchedSso.geoDistAu !== null && matchedSso.helioDistAu !== null
+                  ? `${matchedSso.geoDistAu.toFixed(3)} / ${matchedSso.helioDistAu.toFixed(3)} au`
+                  : matchedSso.geoDistAu !== null
+                    ? `${matchedSso.geoDistAu.toFixed(3)} au (Earth)`
+                    : matchedSso.helioDistAu !== null
+                      ? `${matchedSso.helioDistAu.toFixed(3)} au (Sun)`
+                      : '—'}
+              </dd>
+            </div>
+          </dl>
+          {sbdbUrl ? (
+            <p className="sso-links small">
+              <a className="external" href={sbdbUrl} target="_blank" rel="noopener noreferrer">
+                Open {ssoLabel} in the JPL Small-Body Database ↗
+              </a>
+            </p>
+          ) : null}
+        </section>
+      ) : sso?.status === 'no_match' ? (
+        <section aria-labelledby="sso-heading" className="panel">
+          <h2 id="sso-heading">Solar System identification</h2>
+          <p className="muted small">
+            Checked against IMCCE SkyBoT within 10″ at MJD {sso.obsMjd.toFixed(5)}; no catalogued Solar System object
+            matched.
+          </p>
+        </section>
+      ) : null}
+
+      {stamps ? (
+        <section aria-labelledby="stamps-heading" className="panel">
+          <h2 id="stamps-heading">Alert cutouts</h2>
+          <p className="muted small">
+            ZTF image stamps for detection <span className="mono">{stamps.candid}</span> (
+            <time dateTime={mjdToDate(stamps.mjd).toISOString()}>{formatUtc(mjdToDate(stamps.mjd))}</time>
+            {stamps.band ? `, ${stamps.band} band` : ''}), served by ALeRCE.
+          </p>
+          <div className="stamp-grid">
+            {stamps.stamps.map((s) => (
+              <figure key={s.type} className="stamp-card">
+                {/* eslint-disable-next-line @next/next/no-img-element -- external scientific cutout served by ALeRCE */}
+                <img
+                  src={s.url}
+                  alt={`${s.label} cutout for ${o.oid} (${s.description})`}
+                  width={180}
+                  height={180}
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                />
+                <figcaption>
+                  <strong>{s.label}</strong>
+                  <span className="muted small">{s.description}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section aria-labelledby="lc-heading" className="panel">
         <h2 id="lc-heading">Light curve</h2>
