@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../data/firestore_repository.dart';
-import '../domain/classes.dart';
 import '../domain/format.dart';
 import '../domain/trends.dart';
 import 'theme.dart';

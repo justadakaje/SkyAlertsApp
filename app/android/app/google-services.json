@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "792163391320",
+    "project_id": "skyalerts-app",
+    "storage_bucket": "skyalerts-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:792163391320:android:4a426d2c50f1ae4faa372d",
+        "android_client_info": {
+          "package_name": "app.henseler.skyalerts"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_Goyx8S-pa4MRUi_mNnMh5heAtdTXts4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

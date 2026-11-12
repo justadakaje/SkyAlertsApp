@@ -12,11 +12,15 @@ htmlcov/
 dist/
 build/
 
-# Node / Next.js / Flutter
+# Node / Next.js / Flutter / Firebase
 node_modules/
 .next/
 out/
 .vercel/
+.firebase/
+functions/venv
+functions/skyalerts_ingest/
+functions/skyalerts_digest/
 *.tsbuildinfo
 next-env.d.ts
 .dart_tool/
