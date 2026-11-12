@@ -12,13 +12,16 @@ htmlcov/
 dist/
 build/
 
-# Node / Next.js
+# Node / Next.js / Flutter
 node_modules/
 .next/
 out/
 .vercel/
 *.tsbuildinfo
 next-env.d.ts
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
 
 # Env & secrets — never commit
 .env

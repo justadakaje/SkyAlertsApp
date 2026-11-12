@@ -1,0 +1,44 @@
+[project]
+name = "skyalerts-functions"
+version = "0.1.0"
+description = "Cloud Functions for Firebase (2nd Gen, Python 3.12): Firestore ingest, SkyBoT matching, rollups, FCM push alerts, weekly digest, and Neon backfill."
+requires-python = ">=3.12"
+dependencies = [
+    "firebase-admin>=6.6,<7",
+    "firebase-functions>=0.4.2,<1",
+    "httpx>=0.28.1,<0.29",
+    "psycopg[binary]>=3.3,<3.4",
+    "skyalerts-ingest",
+    "skyalerts-digest",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2,<10",
+    "ruff>=0.17.3,<0.18",
+]
+
+[tool.uv.sources]
+skyalerts-ingest = { path = "../ingest", editable = true }
+skyalerts-digest = { path = "../digest", editable = true }
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["skyalerts_functions"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
