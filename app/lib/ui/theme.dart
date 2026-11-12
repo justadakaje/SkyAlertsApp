@@ -57,7 +57,7 @@ ThemeData buildSkyAlertsTheme() {
       surface: SkyColors.bgSurface,
       onSurface: SkyColors.textPrimary,
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: SkyColors.bgSurface,
       elevation: 0,
       shape: RoundedRectangleBorder(

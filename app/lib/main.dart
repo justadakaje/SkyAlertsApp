@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 
 import 'data/firestore_repository.dart';
+import 'firebase_options.dart';
 import 'ui/router.dart';
 import 'ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   final repository = SkyAlertsRepository();
   runApp(SkyAlertsApp(repository: repository));
 }
