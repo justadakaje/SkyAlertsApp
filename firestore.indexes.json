@@ -1,0 +1,92 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "is_artifact", "order": "ASCENDING" },
+        { "fieldPath": "tier", "order": "ASCENDING" },
+        { "fieldPath": "top_probability", "order": "DESCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "is_artifact", "order": "ASCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "survey", "order": "ASCENDING" },
+        { "fieldPath": "is_artifact", "order": "ASCENDING" },
+        { "fieldPath": "tier", "order": "ASCENDING" },
+        { "fieldPath": "top_probability", "order": "DESCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "survey", "order": "ASCENDING" },
+        { "fieldPath": "is_artifact", "order": "ASCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "top_class", "order": "ASCENDING" },
+        { "fieldPath": "is_artifact", "order": "ASCENDING" },
+        { "fieldPath": "tier", "order": "ASCENDING" },
+        { "fieldPath": "top_probability", "order": "DESCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "top_class", "order": "ASCENDING" },
+        { "fieldPath": "is_artifact", "order": "ASCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "survey", "order": "ASCENDING" },
+        { "fieldPath": "top_class", "order": "ASCENDING" },
+        { "fieldPath": "is_artifact", "order": "ASCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sso.status", "order": "ASCENDING" },
+        { "fieldPath": "sso.obs_mjd", "order": "DESCENDING" },
+        { "fieldPath": "sso.sep_arcsec", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "bookmarks",
+      "fieldPath": "object_key",
+      "ttl": false,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}

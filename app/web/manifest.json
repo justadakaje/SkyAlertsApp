@@ -1,0 +1,10 @@
+{
+  "name": "Sky Alerts",
+  "short_name": "SkyAlerts",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0b0e14",
+  "theme_color": "#0b0e14",
+  "description": "Plain-language astronomical alerts from Vera C. Rubin Observatory (LSST) and ZTF.",
+  "orientation": "any"
+}
