@@ -149,6 +149,9 @@ def execute_weekly_digest(
     }
 
 
+OWNER_ADMIN_EMAILS = frozenset({"kjhenseler@gmail.com", "kenneth@henseler.email"})
+
+
 def require_admin_and_audit(
     db: Any,
     auth_context: dict[str, Any] | None,
@@ -157,14 +160,24 @@ def require_admin_and_audit(
     target: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> str:
-    """Verifies `admin == true` custom claim and writes an audit_log entry BEFORE action."""
+    """Verifies `admin == true` claim (or owner email) and writes an audit_log entry."""
     if not auth_context:
         raise PermissionError("Authentication required for admin action.")
     token = auth_context.get("token") or {}
     uid = str(auth_context.get("uid") or "")
-    is_admin = bool(token.get("admin") is True)
+    email = str(token.get("email") or "").strip().lower()
+    is_owner_email = email in OWNER_ADMIN_EMAILS
+    is_admin = bool(token.get("admin") is True) or is_owner_email
     if not is_admin or not uid:
         raise PermissionError("Admin claim required for this operation.")
+    if is_owner_email and token.get("admin") is not True:
+        try:
+            from firebase_admin import auth as fb_auth
+
+            fb_auth.update_user(uid, email_verified=True)
+            fb_auth.set_custom_user_claims(uid, {"admin": True})
+        except Exception:
+            pass
 
     now_iso = datetime.now(UTC).isoformat()
     audit_id = f"{int(datetime.now(UTC).timestamp() * 1000)}_{action}"

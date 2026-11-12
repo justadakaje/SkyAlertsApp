@@ -17,6 +17,8 @@ class SsoMatchInfo {
     this.sepArcsec,
     this.predictedMag,
     this.obsMjd,
+    this.geoDistAu,
+    this.helioDistAu,
   });
 
   factory SsoMatchInfo.fromMap(Map<String, dynamic> map) {
@@ -28,6 +30,8 @@ class SsoMatchInfo {
       sepArcsec: (map['sep_arcsec'] as num?)?.toDouble(),
       predictedMag: ((map['predicted_mag'] ?? map['v_mag']) as num?)?.toDouble(),
       obsMjd: ((map['obs_mjd'] ?? map['epoch_mjd']) as num?)?.toDouble(),
+      geoDistAu: (map['geo_dist_au'] as num?)?.toDouble(),
+      helioDistAu: (map['helio_dist_au'] as num?)?.toDouble(),
     );
   }
 
@@ -38,6 +42,8 @@ class SsoMatchInfo {
   final double? sepArcsec;
   final double? predictedMag;
   final double? obsMjd;
+  final double? geoDistAu;
+  final double? helioDistAu;
 
   bool get isMatched => status == 'matched' && ssoName != null && ssoName!.isNotEmpty;
 }
@@ -148,12 +154,16 @@ class OverviewRollup {
     required this.updatedAt,
     required this.todayMjd,
     required this.totalObjects,
+    required this.enrichedObjects,
     required this.newThisWeek,
     required this.transientsThisWeek,
     required this.highlights,
     required this.windowClassCounts,
     required this.matchedAsteroids,
     required this.solarEphemerides,
+    this.weeklyDispatchSubject,
+    this.weeklyDispatchMarkdown,
+    this.weeklyDispatchPodcast,
   });
 
   factory OverviewRollup.fromMap(Map<String, dynamic> map) {
@@ -184,11 +194,15 @@ class OverviewRollup {
     final ephemRaw = map['solar_ephemerides'] is Map
         ? Map<String, dynamic>.from(map['solar_ephemerides'] as Map)
         : <String, dynamic>{};
+    final wdRaw = map['weekly_dispatch'] is Map
+        ? Map<String, dynamic>.from(map['weekly_dispatch'] as Map)
+        : <String, dynamic>{};
 
     return OverviewRollup(
       updatedAt: (map['updated_at'] as String?) ?? '',
       todayMjd: (map['today_mjd'] as num?)?.toInt() ?? 61355,
       totalObjects: ((map['total_objects'] ?? totals['objects']) as num?)?.toInt() ?? 0,
+      enrichedObjects: (totals['enriched_objects'] as num?)?.toInt() ?? 0,
       newThisWeek: (totals['new_this_week'] as num?)?.toInt() ?? 0,
       transientsThisWeek: (totals['transients_this_week'] as num?)?.toInt() ?? 0,
       highlights: pickHomeHighlights(highlightRows),
@@ -198,18 +212,25 @@ class OverviewRollup {
           .map((m) => Map<String, dynamic>.from(m))
           .toList(),
       solarEphemerides: ephemRaw,
+      weeklyDispatchSubject: wdRaw['subject'] as String?,
+      weeklyDispatchMarkdown: wdRaw['markdown'] as String?,
+      weeklyDispatchPodcast: wdRaw['podcast'] as String?,
     );
   }
 
   final String updatedAt;
   final int todayMjd;
   final int totalObjects;
+  final int enrichedObjects;
   final int newThisWeek;
   final int transientsThisWeek;
   final List<HighlightCardModel> highlights;
   final Map<String, Map<String, int>> windowClassCounts;
   final List<Map<String, dynamic>> matchedAsteroids;
   final Map<String, dynamic> solarEphemerides;
+  final String? weeklyDispatchSubject;
+  final String? weeklyDispatchMarkdown;
+  final String? weeklyDispatchPodcast;
 }
 
 class TrendsRollup {
@@ -309,6 +330,40 @@ class SkyAlertsRepository {
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
+  Future<UserCredential> signInWithGoogle() async {
+    final provider = GoogleAuthProvider();
+    if (kIsWeb) {
+      return _auth.signInWithPopup(provider);
+    }
+    return _auth.signInWithProvider(provider);
+  }
+
+  Future<UserCredential> signInWithEmail(String email, String password) async {
+    try {
+      return await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+        try {
+          return await _auth.createUserWithEmailAndPassword(
+            email: email.trim(),
+            password: password,
+          );
+        } catch (_) {
+          rethrow;
+        }
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> sendPasswordReset(String email) =>
+      _auth.sendPasswordResetEmail(email: email.trim());
+
+  Future<void> signOut() => _auth.signOut();
+
   /// Single document read (`rollups/overview`) for the Home, Stats, and Solar System screens.
   Future<OverviewRollup> fetchOverview() async {
     final snap = await _db.collection('rollups').doc('overview').get();
@@ -327,7 +382,7 @@ class SkyAlertsRepository {
     String? topClass,
     bool includeArtifacts = false,
     bool newestFirst = false,
-    int limit = 24,
+    int limit = 40,
   }) async {
     Query<Map<String, dynamic>> query = _db.collection('objects');
     if (!includeArtifacts) {
@@ -451,7 +506,7 @@ class SkyAlertsRepository {
     }
   }
 
-  /// Admin Callable Cloud Functions (require `admin == true` custom claim).
+  /// Admin Callable Cloud Functions (require `admin == true` custom claim or owner email).
   Future<Map<String, dynamic>> callAdminFunction(
     String name, [
     Map<String, dynamic>? payload,
@@ -459,5 +514,25 @@ class SkyAlertsRepository {
     final callable = _functions.httpsCallable(name);
     final res = await callable.call<Map<String, dynamic>>(payload ?? const {});
     return Map<String, dynamic>.from(res.data);
+  }
+
+  /// Fetches recent ingest runs (`admin_runs`) for signed-in admins.
+  Future<List<Map<String, dynamic>>> fetchRecentAdminRuns({int limit = 8}) async {
+    final snap = await _db
+        .collection('admin_runs')
+        .orderBy('id', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((d) => d.data()).toList();
+  }
+
+  /// Fetches recent admin audit logs (`audit_log`) for signed-in admins.
+  Future<List<Map<String, dynamic>>> fetchRecentAuditLogs({int limit = 10}) async {
+    final snap = await _db
+        .collection('audit_log')
+        .orderBy('occurred_at', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((d) => d.data()).toList();
   }
 }

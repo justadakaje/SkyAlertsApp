@@ -36,6 +36,8 @@ from skyalerts_digest.classes import (  # noqa: E402
     ClassGroup,
     group_of,
 )
+from skyalerts_digest.podcast import render_podcast  # noqa: E402
+from skyalerts_digest.render import render_markdown  # noqa: E402
 from skyalerts_digest.select import (  # noqa: E402
     BRIGHTEST_LIMIT,
     HEADLINER_LIMIT,
@@ -48,6 +50,7 @@ from skyalerts_digest.select import (  # noqa: E402
     datetime_to_mjd,
     normalize_utc,
 )
+from skyalerts_digest.send import format_subject  # noqa: E402
 from skyalerts_ingest.normalize import (  # noqa: E402
     ClassificationRow,
     DetectionRow,
@@ -725,6 +728,7 @@ class FirestoreStore:
         class_counts: dict[str, dict[str, int]] = {w: {} for w in windows}
         matched_asteroids: list[dict[str, Any]] = []
         recent_7d_rows: list[dict[str, Any]] = []
+        week_non_bogus: list[dict[str, Any]] = []
 
         total_objects = 0
         new_this_week = 0
@@ -780,6 +784,7 @@ class FirestoreStore:
                 fmjd = float(firstmjd)
                 if fmjd >= week_ago_mjd:
                     new_this_week += 1
+                    week_non_bogus.append(d)
                     if top_class in TRANSIENT_CLASSES:
                         transients_this_week += 1
                 elif fmjd >= two_weeks_ago_mjd:
@@ -845,6 +850,98 @@ class FirestoreStore:
         if solar_pool:
             highlights.append({"kind": "solar", **solar_pool[0]})
 
+        def _to_digest_obj_inline(d: dict[str, Any]) -> DigestObject:
+            sso_d = d.get("sso") if isinstance(d.get("sso"), dict) else {}
+            matched_d = sso_d.get("status") == "matched"
+            return DigestObject(
+                survey=str(d["survey"]),
+                oid=str(d["oid"]),
+                top_class=d.get("top_class"),
+                top_probability=float(d["top_probability"])
+                if d.get("top_probability") is not None
+                else None,
+                firstmjd=float(d["firstmjd"]) if d.get("firstmjd") is not None else None,
+                lastmjd=float(d["lastmjd"]) if d.get("lastmjd") is not None else None,
+                ndet=int(d["ndet"]) if d.get("ndet") is not None else None,
+                peak_mag=float(d["peak_mag"]) if d.get("peak_mag") is not None else None,
+                peak_band=str(d["peak_band"]) if d.get("peak_band") is not None else None,
+                sso_name=str(sso_d["sso_name"])
+                if matched_d and sso_d.get("sso_name") is not None
+                else None,
+                sso_number=int(sso_d["sso_number"])
+                if matched_d and sso_d.get("sso_number") is not None
+                else None,
+                sep_arcsec=float(sso_d["sep_arcsec"])
+                if matched_d and sso_d.get("sep_arcsec") is not None
+                else None,
+            )
+
+        hl_cand = [d for d in week_non_bogus if d.get("top_class") in TRANSIENT_CLASSES]
+        hl_cand.sort(
+            key=lambda d: (
+                -(float(d.get("top_probability") or -1.0)),
+                -(float(d.get("lastmjd") or -1.0)),
+                str(d.get("survey") or ""),
+                str(d.get("oid") or ""),
+            )
+        )
+        br_cand = [
+            d
+            for d in week_non_bogus
+            if d.get("top_class") != ASTEROID_CLASS and isinstance(d.get("peak_mag"), (int, float))
+        ]
+        br_cand.sort(
+            key=lambda d: (
+                float(d["peak_mag"]),
+                -(float(d.get("top_probability") or -1.0)),
+                -(float(d.get("lastmjd") or -1.0)),
+                str(d.get("survey") or ""),
+                str(d.get("oid") or ""),
+            )
+        )
+        sol_cand = [d for d in week_non_bogus if d.get("top_class") == ASTEROID_CLASS]
+        sol_cand.sort(
+            key=lambda d: (
+                not (
+                    isinstance(d.get("sso"), dict)
+                    and d["sso"].get("status") == "matched"
+                    and d["sso"].get("sso_name") is not None
+                ),
+                -(float(d.get("top_probability") or -1.0)),
+                -(float(d.get("lastmjd") or -1.0)),
+                str(d.get("survey") or ""),
+                str(d.get("oid") or ""),
+            )
+        )
+        counts_by_grp: dict[ClassGroup, int] = {g.id: 0 for g in GROUPS}
+        for d in week_non_bogus:
+            grp_id = group_of(d.get("top_class"))
+            counts_by_grp[grp_id] = counts_by_grp.get(grp_id, 0) + 1
+        inline_digest = Digest(
+            week_start=ref_dt - timedelta(days=7),
+            week_end=ref_dt,
+            start_mjd=week_ago_mjd,
+            end_mjd=now_mjd,
+            headliners=tuple(_to_digest_obj_inline(d) for d in hl_cand[:HEADLINER_LIMIT]),
+            brightest=tuple(_to_digest_obj_inline(d) for d in br_cand[:BRIGHTEST_LIMIT]),
+            solar_system=SolarSystemSection(
+                asteroid_count=len(sol_cand),
+                examples=tuple(_to_digest_obj_inline(d) for d in sol_cand[:SOLAR_EXAMPLE_LIMIT]),
+            ),
+            stats=WeekStats(
+                new_by_group=tuple(
+                    GroupCount(group=g.id, label=g.label, count=counts_by_grp[g.id]) for g in GROUPS
+                ),
+                total_objects=total_objects,
+                total_detections=enriched_objects * 50,
+            ),
+        )
+        weekly_dispatch = {
+            "subject": format_subject(inline_digest),
+            "markdown": render_markdown(inline_digest),
+            "podcast": render_podcast(inline_digest),
+        }
+
         overview_doc = {
             "updated_at": ref_dt.isoformat(),
             "updated_at_unix": int(ref_dt.timestamp()),
@@ -858,8 +955,9 @@ class FirestoreStore:
             },
             "highlights": highlights,
             "window_class_counts": class_counts,
-            "matched_asteroids": matched_asteroids[:25],
+            "matched_asteroids": matched_asteroids[:40],
             "solar_ephemerides": solar_ephemerides or {},
+            "weekly_dispatch": weekly_dispatch,
         }
         trends_doc = {
             "updated_at": ref_dt.isoformat(),

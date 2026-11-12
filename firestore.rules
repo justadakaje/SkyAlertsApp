@@ -11,7 +11,11 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.admin == true;
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        (request.auth.token.email_verified == true &&
+         request.auth.token.email in ['kjhenseler@gmail.com', 'kenneth@henseler.email'])
+      );
     }
 
     // Public astronomy catalog & light-curve enrichments (written only by Cloud Functions Admin SDK).

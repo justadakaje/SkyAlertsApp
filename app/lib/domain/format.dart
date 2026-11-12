@@ -29,6 +29,13 @@ String formatUtc(double? mjd) {
   return '${dt.year} $mon $dd $hh:$mm UTC';
 }
 
+String formatShortDate(num? mjd) {
+  if (mjd == null || !mjd.toDouble().isFinite) return '—';
+  final dt = mjdToDate(mjd.toDouble());
+  final mon = _months[dt.month - 1];
+  return '$mon ${dt.day}';
+}
+
 String formatAgo(double? mjd, {DateTime? now}) {
   if (mjd == null || !mjd.isFinite) return '—';
   final ref = (now ?? DateTime.now()).toUtc();
@@ -80,6 +87,48 @@ String? humanBrightness(double? peakMag, {String? band}) {
   return 'mag $magStr$bandLabel — ~$factorStr× fainter than the naked-eye limit ($instrument)';
 }
 
+/// Deep-sky g/r/z color CCD cutout from DESI Legacy Imaging Surveys DR10.
+String? legacySurveyCutoutUrl(
+  double? ra,
+  double? dec, {
+  double pixscale = 0.35,
+  int size = 240,
+}) {
+  if (ra == null || dec == null || !ra.isFinite || !dec.isFinite) return null;
+  return 'https://www.legacysurvey.org/viewer/jpeg-cutout'
+      '?ra=${ra.toStringAsFixed(5)}&dec=${dec.toStringAsFixed(5)}'
+      '&layer=ls-dr10&pixscale=$pixscale&size=$size';
+}
+
+/// Optical g/r/i color cutout from Sloan Digital Sky Survey (SDSS DR18).
+String? sdssCutoutUrl(
+  double? ra,
+  double? dec, {
+  double scale = 0.4,
+  int size = 240,
+}) {
+  if (ra == null || dec == null || !ra.isFinite || !dec.isFinite) return null;
+  return 'https://skyserver.sdss.org/dr18/SkyServerWS/ImgCutout/getjpeg'
+      '?ra=${ra.toStringAsFixed(5)}&dec=${dec.toStringAsFixed(5)}'
+      '&scale=$scale&width=$size&height=$size';
+}
+
+String alerceExplorerUrl(String oid) =>
+    'https://alerce.online/object/${Uri.encodeComponent(oid)}';
+
+String? simbadConeUrl(double? ra, double? dec) {
+  if (ra == null || dec == null || !ra.isFinite || !dec.isFinite) return null;
+  final sign = dec >= 0 ? '%2B' : '';
+  return 'https://simbad.cds.unistra.fr/simbad/sim-coo'
+      '?Coord=${ra.toStringAsFixed(5)}$sign${dec.toStringAsFixed(5)}&Radius=2&Radius.unit=arcmin';
+}
+
+String? legacyViewerUrl(double? ra, double? dec) {
+  if (ra == null || dec == null || !ra.isFinite || !dec.isFinite) return null;
+  return 'https://www.legacysurvey.org/viewer'
+      '?ra=${ra.toStringAsFixed(5)}&dec=${dec.toStringAsFixed(5)}&layer=ls-dr10&zoom=15';
+}
+
 class HighlightCardModel {
   const HighlightCardModel({
     required this.kind,
@@ -88,6 +137,9 @@ class HighlightCardModel {
     required this.oid,
     required this.headline,
     required this.subtitle,
+    this.ra,
+    this.dec,
+    this.topClass,
   });
 
   final String kind; // 'explosion' | 'active' | 'solar'
@@ -96,6 +148,9 @@ class HighlightCardModel {
   final String oid;
   final String headline;
   final String subtitle;
+  final double? ra;
+  final double? dec;
+  final String? topClass;
 }
 
 /// Builds up to 3 "What stood out" highlight cards from recent catalog objects.
@@ -130,6 +185,9 @@ List<HighlightCardModel> pickHomeHighlights(List<Map<String, dynamic>> rows) {
         oid: '${top['oid']}',
         headline: '${info.label} (${top['oid']})',
         subtitle: '$prob confidence · ${info.blurb}',
+        ra: ((top['meanra'] ?? top['ra_deg']) as num?)?.toDouble(),
+        dec: ((top['meandec'] ?? top['dec_deg']) as num?)?.toDouble(),
+        topClass: top['top_class'] as String?,
       ),
     );
   }
@@ -159,6 +217,9 @@ List<HighlightCardModel> pickHomeHighlights(List<Map<String, dynamic>> rows) {
         oid: '${top['oid']}',
         headline: '${top['oid']} · ${formatCount(ndet)} detections',
         subtitle: '${info.label} tracked across repeated survey passes.',
+        ra: ((top['meanra'] ?? top['ra_deg']) as num?)?.toDouble(),
+        dec: ((top['meandec'] ?? top['dec_deg']) as num?)?.toDouble(),
+        topClass: top['top_class'] as String?,
       ),
     );
   }
@@ -199,6 +260,9 @@ List<HighlightCardModel> pickHomeHighlights(List<Map<String, dynamic>> rows) {
         subtitle: matchedName != null
             ? 'Cross-matched with IMCCE SkyBoT ephemeris ($label).'
             : 'Fast-moving Solar System candidate spotted in survey frames.',
+        ra: ((top['meanra'] ?? top['ra_deg']) as num?)?.toDouble(),
+        dec: ((top['meandec'] ?? top['dec_deg']) as num?)?.toDouble(),
+        topClass: top['top_class'] as String?,
       ),
     );
   }

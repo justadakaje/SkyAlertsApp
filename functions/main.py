@@ -49,14 +49,38 @@ try:
         db = _get_firestore_db()
         execute_weekly_digest(db, send_email=True, send_fcm=True)
 
+    def _guard_admin(
+        db: Any,
+        req: https_fn.CallableRequest[Any],
+        *,
+        action: str,
+        target: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        auth_ctx = {"uid": req.auth.uid, "token": req.auth.token} if req.auth is not None else None
+        try:
+            return require_admin_and_audit(
+                db,
+                auth_ctx,
+                action=action,
+                target=target,
+                metadata=metadata,
+            )
+        except PermissionError as exc:
+            code = (
+                https_fn.FunctionsErrorCode.UNAUTHENTICATED
+                if req.auth is None
+                else https_fn.FunctionsErrorCode.PERMISSION_DENIED
+            )
+            raise https_fn.HttpsError(code=code, message=str(exc)) from exc
+
     @https_fn.on_call(memory=512, timeout_sec=300)
     def trigger_ingest(req: https_fn.CallableRequest[Any]) -> dict[str, Any]:
         db = _get_firestore_db()
-        auth_ctx = {"uid": req.auth.uid, "token": req.auth.token} if req.auth is not None else None
         survey = (req.data or {}).get("survey") if isinstance(req.data, dict) else None
-        require_admin_and_audit(
+        _guard_admin(
             db,
-            auth_ctx,
+            req,
             action="ingest.rerun",
             target=str(survey or "all"),
             metadata={"survey": survey},
@@ -67,10 +91,9 @@ try:
     @https_fn.on_call(memory=256, timeout_sec=180)
     def trigger_identify(req: https_fn.CallableRequest[Any]) -> dict[str, Any]:
         db = _get_firestore_db()
-        auth_ctx = {"uid": req.auth.uid, "token": req.auth.token} if req.auth is not None else None
-        require_admin_and_audit(
+        _guard_admin(
             db,
-            auth_ctx,
+            req,
             action="identify.rerun",
             target="skybot",
         )
@@ -84,10 +107,9 @@ try:
     @https_fn.on_call(memory=256, timeout_sec=120)
     def preview_digest(req: https_fn.CallableRequest[Any]) -> dict[str, Any]:
         db = _get_firestore_db()
-        auth_ctx = {"uid": req.auth.uid, "token": req.auth.token} if req.auth is not None else None
-        require_admin_and_audit(
+        _guard_admin(
             db,
-            auth_ctx,
+            req,
             action="digest.preview",
             target="weekly",
         )
@@ -96,10 +118,9 @@ try:
     @https_fn.on_call(memory=256, timeout_sec=180)
     def send_digest(req: https_fn.CallableRequest[Any]) -> dict[str, Any]:
         db = _get_firestore_db()
-        auth_ctx = {"uid": req.auth.uid, "token": req.auth.token} if req.auth is not None else None
-        require_admin_and_audit(
+        _guard_admin(
             db,
-            auth_ctx,
+            req,
             action="digest.send",
             target="weekly",
         )
