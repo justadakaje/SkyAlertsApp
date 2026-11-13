@@ -63,6 +63,14 @@ class CatalogObject {
     this.topProbability,
     this.peakMag,
     this.peakBand,
+    this.latestMag,
+    this.latestBand,
+    this.latestMjd,
+    this.displayName,
+    this.targetKind,
+    this.sourceFeed,
+    this.magNote,
+    this.horizonsUrl,
     this.tier = 1,
     this.isArtifact = false,
     this.sso,
@@ -85,6 +93,14 @@ class CatalogObject {
       topProbability: (map['top_probability'] as num?)?.toDouble(),
       peakMag: (map['peak_mag'] as num?)?.toDouble(),
       peakBand: map['peak_band'] as String?,
+      latestMag: (map['latest_mag'] as num?)?.toDouble(),
+      latestBand: map['latest_band'] as String?,
+      latestMjd: (map['latest_mjd'] as num?)?.toDouble(),
+      displayName: map['display_name'] as String?,
+      targetKind: map['target_kind'] as String?,
+      sourceFeed: map['source_feed'] as String?,
+      magNote: map['mag_note'] as String?,
+      horizonsUrl: map['horizons_url'] as String?,
       tier: (map['tier'] as num?)?.toInt() ?? 1,
       isArtifact: map['is_artifact'] == true,
       sso: ssoRaw is Map ? SsoMatchInfo.fromMap(Map<String, dynamic>.from(ssoRaw)) : null,
@@ -104,11 +120,22 @@ class CatalogObject {
   final double? topProbability;
   final double? peakMag;
   final String? peakBand;
+  final double? latestMag;
+  final String? latestBand;
+  final double? latestMjd;
+  final String? displayName;
+  final String? targetKind;
+  final String? sourceFeed;
+  final String? magNote;
+  final String? horizonsUrl;
   final int tier;
   final bool isArtifact;
   final SsoMatchInfo? sso;
 
   String get docId => '${survey}_$oid';
+  double? get effectiveMag => latestMag ?? peakMag;
+  String get displayLabel =>
+      (displayName != null && displayName!.trim().isNotEmpty) ? displayName!.trim() : oid;
 }
 
 class ClassificationEntry {
@@ -404,6 +431,32 @@ class SkyAlertsRepository {
     }
     final snap = await query.limit(limit).get();
     return snap.docs.map((d) => CatalogObject.fromMap(d.data())).toList();
+  }
+
+  /// Fetches bright magnitude-measured targets plus recent non-artifact objects
+  /// for the on-device Backyard Planner.
+  Future<List<CatalogObject>> fetchBackyardCandidates({
+    int brightLimit = 100,
+    int recentLimit = 60,
+  }) async {
+    final results = await Future.wait([
+      _db.collection('objects').orderBy('latest_mag').limit(brightLimit).get(),
+      fetchCatalogFeed(newestFirst: true, limit: recentLimit),
+    ]);
+    final brightSnap = results[0] as QuerySnapshot<Map<String, dynamic>>;
+    final recentList = results[1] as List<CatalogObject>;
+
+    final byId = <String, CatalogObject>{};
+    for (final doc in brightSnap.docs) {
+      final obj = CatalogObject.fromMap(doc.data());
+      if (!obj.isArtifact) {
+        byId[obj.docId] = obj;
+      }
+    }
+    for (final obj in recentList) {
+      byId.putIfAbsent(obj.docId, () => obj);
+    }
+    return byId.values.toList();
   }
 
   /// 2-document read for the Object Detail page (`objects/{id}` + `detail/enrichment`).

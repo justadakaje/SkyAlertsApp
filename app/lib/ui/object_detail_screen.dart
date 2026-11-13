@@ -6,12 +6,15 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../data/firestore_repository.dart';
 import '../domain/astro.dart';
+import '../domain/backyard_planner.dart';
 import '../domain/classes.dart';
 import '../domain/format.dart';
 import '../domain/lightcurve.dart';
 import '../domain/solar.dart';
 import 'sky_media_widgets.dart';
 import 'theme.dart';
+import 'tonight_arc_chart.dart';
+import 'tonight_screen.dart';
 
 class ObjectDetailScreen extends StatefulWidget {
   const ObjectDetailScreen({
@@ -239,6 +242,18 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                         spacing: 10,
                         runSpacing: 8,
                         children: [
+                          if (obj.meanRa != null && obj.meanDec != null)
+                            FilledButton.tonalIcon(
+                              onPressed: () {
+                                final text = formatCoordinatesForRig(obj);
+                                Clipboard.setData(ClipboardData(text: text));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Copied J2000 coordinates: $text')),
+                                );
+                              },
+                              icon: const Icon(Icons.copy, size: 16),
+                              label: const Text('Copy J2000 RA/Dec'),
+                            ),
                           OutlinedButton.icon(
                             onPressed: () =>
                                 launchUrl(Uri.parse(alerceExplorerUrl(obj.oid))),
@@ -264,6 +279,53 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+              if (obj.meanRa != null && obj.meanDec != null)
+                Builder(
+                  builder: (context) {
+                    final loc = backyardLocationNotifier.value;
+                    final scope = backyardScopeNotifier.value;
+                    final minAlt = backyardMinAltNotifier.value;
+                    final plan = planTarget(obj, loc, scope, minAltDeg: minAlt);
+                    if (plan == null) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      "Tonight's Backyard Arc",
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${scope.shortLabel} · ${loc.label}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: SkyColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                plan.statusLine,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              const SizedBox(height: 12),
+                              TonightArcChart(plan: plan, minAltDeg: minAlt),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               // Deep-Sky & Survey Cutout Imagery Card (always shown when RA/Dec are available)
               if (obj.meanRa != null && obj.meanDec != null)
                 Card(
@@ -287,38 +349,38 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                           runSpacing: 16,
                           children: [
                             _CutoutFrame(
-                              label: 'Legacy DR10 (Wide 84″)',
+                              label: 'Archival Host View (Target at Crosshair) · Wide 84″',
                               child: SkyCutoutThumbnail(
                                 ra: obj.meanRa,
                                 dec: obj.meanDec,
                                 width: 150,
                                 height: 150,
                                 pixscale: 0.35,
-                                title: '${obj.oid} · Legacy DR10 Wide Field (84″)',
+                                title: '${obj.oid} · Legacy DR10 Archival Wide Field (84″)',
                               ),
                             ),
                             _CutoutFrame(
-                              label: 'Legacy DR10 (Host Zoom 34″)',
+                              label: 'Archival Host View (Target at Crosshair) · Zoom 34″',
                               child: SkyCutoutThumbnail(
                                 ra: obj.meanRa,
                                 dec: obj.meanDec,
                                 width: 150,
                                 height: 150,
                                 pixscale: 0.14,
-                                title: '${obj.oid} · Legacy DR10 Host Galaxy Zoom (34″)',
+                                title: '${obj.oid} · Legacy DR10 Archival Host Zoom (34″)',
                               ),
                             ),
                             if (stamps != null) ...[
                               _StampTile(
-                                label: 'ZTF Science (${stamps.band}-band)',
+                                label: 'Live Survey Detection Stamp (${stamps.band}-band)',
                                 url: stamps.scienceUrl,
                               ),
                               _StampTile(
-                                label: 'ZTF Reference (Template)',
+                                label: 'Live Survey Reference (Template)',
                                 url: stamps.templateUrl,
                               ),
                               _StampTile(
-                                label: 'ZTF Difference (Subtraction)',
+                                label: 'Live Survey Difference (Subtraction)',
                                 url: stamps.differenceUrl,
                               ),
                             ],

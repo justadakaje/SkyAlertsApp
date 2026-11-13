@@ -46,7 +46,60 @@ class SkyColors {
   }
 }
 
-ThemeData buildSkyAlertsTheme() {
+final ValueNotifier<bool> redNightModeNotifier = ValueNotifier<bool>(false);
+
+class SkyRedColors {
+  static const Color bgPrimary = Color(0xFF000000);
+  static const Color bgSurface = Color(0xFF0B0101);
+  static const Color bgElevated = Color(0xFF180303);
+  static const Color borderSubtle = Color(0xFF3A0A0A);
+  static const Color textPrimary = Color(0xFFFF4D43);
+  static const Color textSecondary = Color(0xFFB8322A);
+  static const Color accentRed = Color(0xFFFF2D20);
+}
+
+ThemeData buildSkyAlertsTheme({bool redNightMode = false}) {
+  if (redNightMode) {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: SkyRedColors.bgPrimary,
+      colorScheme: const ColorScheme.dark(
+        primary: SkyRedColors.accentRed,
+        secondary: SkyRedColors.textSecondary,
+        surface: SkyRedColors.bgSurface,
+        onSurface: SkyRedColors.textPrimary,
+        onPrimary: Colors.black,
+      ),
+      cardTheme: CardThemeData(
+        color: SkyRedColors.bgSurface,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: SkyRedColors.borderSubtle),
+        ),
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: SkyRedColors.bgPrimary,
+        foregroundColor: SkyRedColors.textPrimary,
+        elevation: 0,
+        centerTitle: false,
+      ),
+      navigationRailTheme: const NavigationRailThemeData(
+        backgroundColor: SkyRedColors.bgSurface,
+        selectedIconTheme: IconThemeData(color: SkyRedColors.accentRed),
+        unselectedIconTheme: IconThemeData(color: SkyRedColors.textSecondary),
+        selectedLabelTextStyle: TextStyle(color: SkyRedColors.accentRed),
+        unselectedLabelTextStyle: TextStyle(color: SkyRedColors.textSecondary),
+      ),
+      navigationBarTheme: const NavigationBarThemeData(
+        backgroundColor: SkyRedColors.bgSurface,
+        indicatorColor: SkyRedColors.bgElevated,
+      ),
+      dividerColor: SkyRedColors.borderSubtle,
+    );
+  }
+
   return ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
