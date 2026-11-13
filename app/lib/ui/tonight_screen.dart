@@ -6,7 +6,9 @@ import '../data/firestore_repository.dart';
 import '../domain/astro_weather.dart';
 import '../domain/backyard_planner.dart';
 import '../domain/classes.dart';
+import '../domain/pro_entitlement.dart';
 import 'gear_card_widget.dart';
+import 'pro_paywall_sheet.dart';
 import 'theme.dart';
 import 'tonight_arc_chart.dart';
 
@@ -153,6 +155,29 @@ class _TonightScreenState extends State<TonightScreen> {
                 icon: Icon(
                   isRed ? Icons.nights_stay : Icons.nights_stay_outlined,
                   color: isRed ? SkyRedColors.accentRed : null,
+                ),
+              );
+            },
+          ),
+          ValueListenableBuilder<ProEntitlementState>(
+            valueListenable: proEntitlementNotifier,
+            builder: (context, proState, _) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: TextButton.icon(
+                  onPressed: () => showProPaywallSheet(context),
+                  style: TextButton.styleFrom(
+                    foregroundColor: proState.isPro
+                        ? const Color(0xFF3DDC97)
+                        : SkyColors.accentAmber,
+                  ),
+                  icon: Icon(
+                    proState.isPro
+                        ? Icons.verified_outlined
+                        : Icons.auto_awesome,
+                    size: 18,
+                  ),
+                  label: Text(proState.isPro ? 'Pro Active' : 'Pro'),
                 ),
               );
             },
