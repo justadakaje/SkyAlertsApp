@@ -114,5 +114,20 @@ void main() {
       final csv = exportPlannedTargetsCsv([ranked.first]);
       expect(csv, contains('SN 2026abc,bright_sn,SN2026abc'));
     });
+
+    test('CatalogObject.fromMap handles string tier "bright" safely', () {
+      final obj = CatalogObject.fromMap({
+        'survey': 'bright_sn',
+        'oid': 'SN2026xyz',
+        'display_name': 'SN 2026xyz',
+        'meanra': 150.0,
+        'meandec': 25.0,
+        'latest_mag': 12.4,
+        'tier': 'bright',
+      });
+      expect(obj.tier, 0);
+      expect(obj.latestMag, 12.4);
+      expect(obj.displayLabel, 'SN 2026xyz');
+    });
   });
 }
