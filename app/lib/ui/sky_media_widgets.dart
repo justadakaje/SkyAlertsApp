@@ -479,6 +479,11 @@ class _SkyDispatchSheetBodyState extends State<_SkyDispatchSheetBody> {
                 },
                 icon: const Icon(Icons.copy_outlined, size: 18),
               ),
+              IconButton(
+                tooltip: 'Close briefing',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close, size: 20),
+              ),
             ],
           ),
           const SizedBox(height: 12),
