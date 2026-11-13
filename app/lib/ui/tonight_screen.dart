@@ -6,6 +6,7 @@ import '../data/firestore_repository.dart';
 import '../domain/astro_weather.dart';
 import '../domain/backyard_planner.dart';
 import '../domain/classes.dart';
+import 'gear_card_widget.dart';
 import 'theme.dart';
 import 'tonight_arc_chart.dart';
 
@@ -202,6 +203,8 @@ class _TonightScreenState extends State<TonightScreen> {
               )
             else
               ...ranked.take(40).map((t) => _buildTargetCard(context, t, minAlt)),
+            const SizedBox(height: 16),
+            GearRecommendationCard(magnitude: scope.limitingMag),
           ],
         ),
       ),

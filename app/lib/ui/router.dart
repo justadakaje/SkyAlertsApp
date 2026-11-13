@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../data/firestore_repository.dart';
 import 'admin_screen.dart';
 import 'home_screen.dart';
+import 'legal_screens.dart';
 import 'object_detail_screen.dart';
 import 'saved_alerts_screen.dart';
 import 'solar_system_screen.dart';
@@ -79,6 +80,14 @@ GoRouter buildAppRouter(SkyAlertsRepository repository) {
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: '/privacy',
+        builder: (context, state) => const PrivacyPolicyScreen(),
+      ),
+      GoRoute(
+        path: '/terms',
+        builder: (context, state) => const TermsOfServiceScreen(),
       ),
     ],
   );

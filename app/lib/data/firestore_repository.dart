@@ -335,10 +335,13 @@ class UserAlertPreferences {
   });
 
   factory UserAlertPreferences.fromMap(Map<String, dynamic> map) {
+    final topics = map['topics'] is Map
+        ? Map<String, dynamic>.from(map['topics'] as Map)
+        : const <String, dynamic>{};
     return UserAlertPreferences(
-      notifyTransients: map['notify_transients'] != false,
-      notifySolarMatched: map['notify_solar_matched'] == true,
-      notifyWeeklyDispatch: map['notify_weekly_dispatch'] != false,
+      notifyTransients: (topics['transients'] ?? map['notify_transients']) != false,
+      notifySolarMatched: (topics['solar_matched'] ?? map['notify_solar_matched']) == true,
+      notifyWeeklyDispatch: (topics['weekly_dispatch'] ?? map['notify_weekly_dispatch']) != false,
       minConfidence: (map['min_confidence'] as num?)?.toDouble() ?? 0.80,
       maxPeakMag: (map['max_peak_mag'] as num?)?.toDouble(),
     );
@@ -351,9 +354,11 @@ class UserAlertPreferences {
   final double? maxPeakMag;
 
   Map<String, dynamic> toMap() => {
-        'notify_transients': notifyTransients,
-        'notify_solar_matched': notifySolarMatched,
-        'notify_weekly_dispatch': notifyWeeklyDispatch,
+        'topics': {
+          'transients': notifyTransients,
+          'solar_matched': notifySolarMatched,
+          'weekly_dispatch': notifyWeeklyDispatch,
+        },
         'min_confidence': minConfidence,
         'max_peak_mag': maxPeakMag,
       };
@@ -378,12 +383,73 @@ class SkyAlertsRepository {
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
+  /// Ensures the client has an anonymous Firebase session (or existing signed-in user).
+  Future<User> ensureSignedInAnonymously() async {
+    final existing = _auth.currentUser;
+    if (existing != null) return existing;
+    final cred = await _auth.signInAnonymously();
+    return cred.user!;
+  }
+
   Future<UserCredential> signInWithGoogle() async {
     final provider = GoogleAuthProvider();
     if (kIsWeb) {
       return _auth.signInWithPopup(provider);
     }
     return _auth.signInWithProvider(provider);
+  }
+
+  /// Links Google to an anonymous session so bookmarks/settings survive upgrade.
+  Future<UserCredential> linkOrSignInWithGoogle() async {
+    final user = _auth.currentUser;
+    final provider = GoogleAuthProvider();
+    if (user != null && user.isAnonymous) {
+      try {
+        return kIsWeb
+            ? await user.linkWithPopup(provider)
+            : await user.linkWithProvider(provider);
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'credential-already-in-use' || e.code == 'email-already-in-use') {
+          return signInWithGoogle();
+        }
+        rethrow;
+      }
+    }
+    return signInWithGoogle();
+  }
+
+  /// Links Sign in with Apple (required on iOS, Guideline 4.8) or signs in.
+  Future<UserCredential> linkOrSignInWithApple() async {
+    final user = _auth.currentUser;
+    final provider = AppleAuthProvider();
+    if (user != null && user.isAnonymous) {
+      try {
+        return kIsWeb
+            ? await user.linkWithPopup(provider)
+            : await user.linkWithProvider(provider);
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'credential-already-in-use' || e.code == 'email-already-in-use') {
+          return kIsWeb
+              ? await _auth.signInWithPopup(provider)
+              : await _auth.signInWithProvider(provider);
+        }
+        rethrow;
+      }
+    }
+    return kIsWeb ? _auth.signInWithPopup(provider) : _auth.signInWithProvider(provider);
+  }
+
+  /// Permanently deletes synced bookmarks, user profile doc, and Firebase Auth user.
+  Future<void> deleteUserAccountAndData() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    final userRef = _db.collection('users').doc(user.uid);
+    final bookmarksSnap = await userRef.collection('bookmarks').get();
+    for (final doc in bookmarksSnap.docs) {
+      await doc.reference.delete();
+    }
+    await userRef.delete();
+    await user.delete();
   }
 
   Future<UserCredential> signInWithEmail(String email, String password) async {
@@ -523,6 +589,7 @@ class SkyAlertsRepository {
   }
 
   Future<void> toggleBookmark(CatalogObject obj) async {
+    await ensureSignedInAnonymously();
     final user = _auth.currentUser;
     if (user == null) return;
     final ref = _db
@@ -535,18 +602,24 @@ class SkyAlertsRepository {
       await ref.delete();
     } else {
       await ref.set({
-        'uid': user.uid,
         'object_key': obj.docId,
         'survey': obj.survey,
         'oid': obj.oid,
         'top_class': obj.topClass,
+        if (obj.sso?.ssoName != null) 'sso_name': obj.sso!.ssoName,
+        if (obj.sso?.ssoNumber != null) 'sso_number': obj.sso!.ssoNumber,
         'created_at': FieldValue.serverTimestamp(),
       });
     }
   }
 
   /// Saves user alert thresholds and updates FCM topic subscriptions on iOS/Android.
-  Future<void> saveAlertPreferences(UserAlertPreferences prefs) async {
+  Future<void> saveAlertPreferences(
+    UserAlertPreferences prefs, {
+    double? roundedLat,
+    double? roundedLon,
+    String? scopePreset,
+  }) async {
     if (!kIsWeb) {
       await _messaging.requestPermission();
       if (prefs.notifyTransients) {
@@ -566,18 +639,24 @@ class SkyAlertsRepository {
       }
     }
 
-    final user = _auth.currentUser;
-    if (user != null) {
-      final token = await _messaging.getToken();
-      await _db.collection('users').doc(user.uid).set(
-        {
-          ...prefs.toMap(),
-          if (token != null) 'fcm_tokens': FieldValue.arrayUnion([token]),
-          'updated_at': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+    final user = _auth.currentUser ?? await ensureSignedInAnonymously();
+    String? token;
+    try {
+      token = await _messaging.getToken();
+    } catch (_) {
+      token = null;
     }
+    await _db.collection('users').doc(user.uid).set(
+      {
+        ...prefs.toMap(),
+        if (roundedLat != null) 'rounded_lat': (roundedLat * 10.0).round() / 10.0,
+        if (roundedLon != null) 'rounded_lon': (roundedLon * 10.0).round() / 10.0,
+        if (scopePreset != null) 'scope_preset': scopePreset,
+        if (token != null) 'fcm_tokens': FieldValue.arrayUnion([token]),
+        'updated_at': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Admin Callable Cloud Functions (require `admin == true` custom claim or owner email).
