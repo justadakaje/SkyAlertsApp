@@ -256,7 +256,7 @@ def fetch_neo_close_approaches(
     client: httpx.Client,
     *,
     now: datetime | None = None,
-    limit: int = 5,
+    limit: int = 3,
 ) -> list[dict[str, Any]]:
     """Fetches upcoming close NEOs from JPL CAD and resolves today's sky position via Horizons."""
     ref = (now or datetime.now(UTC)).astimezone(UTC)
@@ -361,7 +361,7 @@ def fetch_bright_comets(
     *,
     now: datetime | None = None,
     max_v_mag: float = 15.5,
-    limit: int = 8,
+    limit: int = 4,
 ) -> list[dict[str, Any]]:
     """Fetches MPC comets near perihelion and resolves live magnitude/coords via Horizons."""
     ref = (now or datetime.now(UTC)).astimezone(UTC)
@@ -370,7 +370,7 @@ def fetch_bright_comets(
 
     resp = client.get(MPC_COMETS_URL)
     resp.raise_for_status()
-    candidates = parse_mpc_comets(resp.text, now=ref)[:15]
+    candidates = parse_mpc_comets(resp.text, now=ref)[:6]
 
     out: list[dict[str, Any]] = []
     for cand in candidates:
@@ -465,7 +465,7 @@ def collect_bright_targets(
     """Collects bright supernovae, NEOs, comets, and evergreen variables fault-tolerantly."""
     own_client = client is None
     http = client or httpx.Client(
-        timeout=httpx.Timeout(12.0),
+        timeout=httpx.Timeout(6.0),
         headers={"User-Agent": USER_AGENT},
         follow_redirects=True,
     )
