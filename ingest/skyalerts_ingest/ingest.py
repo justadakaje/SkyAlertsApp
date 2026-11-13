@@ -129,7 +129,8 @@ class Config:
     default_lookback_days: float = 1.2  # source with no watermark yet: about one night
     max_lookback_days: float = 7.0
     time_budget_s: float = 240.0  # leave headroom under Vercel's 300 s
-    enrich_max_objects: int = 40
+    # Cover ~200 priority objects while staying well inside Cloud Functions timeouts.
+    enrich_max_objects: int = 200
 
     @classmethod
     def from_env(cls) -> Config:

@@ -18,6 +18,7 @@ from skyalerts_ingest.ingest import SOURCES, Config, Source
 from skyalerts_ingest.ingest import run as run_ingest
 from skyalerts_ingest.sso import SkyBotClient
 
+from skyalerts_functions.bright_targets import collect_bright_targets
 from skyalerts_functions.firestore_store import FirestoreStore
 from skyalerts_functions.horizons import fetch_all_ephemerides
 from skyalerts_functions.notifications import (
@@ -41,14 +42,15 @@ def execute_daily_pipeline(
     skybot_client: SkyBotClient | None = None,
     send_fn: SendFn | None = None,
     ephemerides_fn: Callable[[], dict[str, dict[str, Any] | None]] | None = None,
+    bright_targets_fn: Callable[[], list[dict[str, Any]]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Runs the consolidated daily ingest + SkyBoT + Horizons + rollups + FCM pipeline."""
+    """Runs daily ingest + SkyBoT + bright targets + Horizons + rollups + FCM."""
     cfg = config or Config.from_env()
     fs_store = FirestoreStore(db, now_fn=(lambda: now) if now is not None else None)
 
     own_alerce = alerce_client is None
-    a_client = alerce_client or AlerceClient()
+    a_client = alerce_client or AlerceClient(min_interval=0.2)
     own_skybot = skybot_client is None
     s_client = skybot_client or SkyBotClient()
 
@@ -63,6 +65,12 @@ def execute_daily_pipeline(
             now=now,
         )
         sso_res = fs_store.identify_asteroids(s_client)
+        bright_items = (
+            bright_targets_fn()
+            if bright_targets_fn is not None
+            else collect_bright_targets(now=now)
+        )
+        bright_upserted = fs_store.upsert_bright_targets(bright_items)
         ephemerides = (
             ephemerides_fn() if ephemerides_fn is not None else fetch_all_ephemerides(now=now)
         )
@@ -77,6 +85,7 @@ def execute_daily_pipeline(
         return {
             "ingest_run": run_res.as_dict(),
             "sso_counts": sso_res.as_dict(),
+            "bright_targets_upserted": bright_upserted,
             "notifications_sent": {
                 "transients": len(transient_pushes),
                 "bookmarks": len(bookmark_pushes),

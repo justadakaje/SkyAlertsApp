@@ -123,6 +123,30 @@ def compute_peak_photometry(
     return best_mag, best_band
 
 
+def compute_latest_photometry(
+    detections: Sequence[DetectionRow],
+) -> tuple[float | None, str | None]:
+    """Returns `(latest_mag, latest_band)` from the most recent valid detection."""
+    latest_mjd: float | None = None
+    latest_mag: float | None = None
+    latest_band: str | None = None
+    for d in detections:
+        raw = d.raw or {}
+        corrected = raw.get("corrected") is True
+        magpsf_corr = raw.get("magpsf_corr")
+        eff_mag_val = (
+            float(magpsf_corr) if corrected and isinstance(magpsf_corr, (int, float)) else d.mag
+        )
+        isdiffpos = raw.get("isdiffpos")
+        negative = isdiffpos in (-1, "-1", "f") and not corrected
+        cand = effective_ab_mag(eff_mag_val, d.flux_njy, negative=negative)
+        if cand is not None and (latest_mjd is None or d.mjd >= latest_mjd):
+            latest_mjd = d.mjd
+            latest_mag = round(cand, 4)
+            latest_band = d.band
+    return latest_mag, latest_band
+
+
 def serialize_detection(d: DetectionRow) -> dict[str, Any]:
     raw = d.raw or {}
     corrected = raw.get("corrected") is True
@@ -446,6 +470,7 @@ class FirestoreStore:
         obj_snap = obj_ref.get()
         lastmjd = (obj_snap.to_dict() or {}).get("lastmjd") if obj_snap.exists else None
         peak_mag, peak_band = compute_peak_photometry(detections)
+        latest_mag, latest_mag_band = compute_latest_photometry(detections)
 
         detail_ref = obj_ref.collection("detail").document("enrichment")
         detail_ref.set(
@@ -463,6 +488,8 @@ class FirestoreStore:
                 "enriched_lastmjd": lastmjd,
                 "peak_mag": peak_mag,
                 "peak_band": peak_band,
+                "latest_mag": latest_mag,
+                "latest_mag_band": latest_mag_band,
             },
             merge=True,
         )
@@ -470,7 +497,35 @@ class FirestoreStore:
             if t.get("doc_id") == doc_id:
                 t["peak_mag"] = peak_mag
                 t["peak_band"] = peak_band
+                t["latest_mag"] = latest_mag
+                t["latest_mag_band"] = latest_mag_band
         return len(detections), len(classifications)
+
+    def upsert_bright_targets(self, targets: Sequence[dict[str, Any]]) -> int:
+        """Upserts bright supernovae, comets, NEOs, and evergreen variables into `objects/`."""
+        if not targets:
+            return 0
+        now_iso = self._now().isoformat()
+        count = 0
+        batch = self.db.batch()
+        ops = 0
+        for item in targets:
+            doc_id = str(item.get("doc_id") or "")
+            if not doc_id:
+                continue
+            payload = dict(item)
+            payload["updated_at"] = now_iso
+            ref = self.db.collection("objects").document(doc_id)
+            batch.set(ref, payload, merge=True)
+            ops += 1
+            count += 1
+            if ops >= 400:
+                batch.commit()
+                batch = self.db.batch()
+                ops = 0
+        if ops > 0:
+            batch.commit()
+        return count
 
     def prune_artifacts(self, *, max_age_days: float = 30.0, ref_mjd: float | None = None) -> int:
         if max_age_days < 7.0:

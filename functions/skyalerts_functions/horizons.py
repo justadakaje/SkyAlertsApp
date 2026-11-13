@@ -34,12 +34,13 @@ _CONSTELLATION_RE = re.compile(r"^[A-Z][a-z]{2}$")
 HORIZONS_GIVE_UP_AFTER = 2
 
 
-def horizons_url(number: int, day_iso: str) -> str:
+def horizons_url(command: int | str, day_iso: str) -> str:
     day_dt = datetime.fromisoformat(f"{day_iso}T00:00:00+00:00")
     next_iso = (day_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    cmd_str = f"'{command};'" if isinstance(command, int) else f"'{command}'"
     params = {
         "format": "json",
-        "COMMAND": f"'{number};'",
+        "COMMAND": cmd_str,
         "EPHEM_TYPE": "OBSERVER",
         "CENTER": "'500@399'",
         "START_TIME": f"'{day_iso}'",
