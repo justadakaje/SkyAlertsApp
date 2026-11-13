@@ -16,8 +16,7 @@ class AdminScreen extends StatefulWidget {
 }
 
 class _AdminScreenState extends State<AdminScreen> {
-  final TextEditingController _emailCtrl =
-      TextEditingController(text: 'kjhenseler@gmail.com');
+  final TextEditingController _emailCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
   String _statusMessage =
       'Sign in with your owner account below to run pipeline actions and inspect run logs.';
