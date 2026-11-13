@@ -81,30 +81,51 @@ class CatalogObject {
     return CatalogObject(
       survey: (map['survey'] as String?) ?? 'ztf',
       oid: (map['oid'] as String?) ?? '',
-      meanRa: ((map['meanra'] ?? map['ra_deg']) as num?)?.toDouble(),
-      meanDec: ((map['meandec'] ?? map['dec_deg']) as num?)?.toDouble(),
-      firstMjd: ((map['firstmjd'] ?? map['first_mjd']) as num?)?.toDouble(),
-      lastMjd: ((map['lastmjd'] ?? map['last_mjd']) as num?)?.toDouble(),
-      nDetections: ((map['ndet'] ?? map['n_detections']) as num?)?.toInt() ?? 0,
+      meanRa: _asDouble(map['meanra'] ?? map['ra_deg']),
+      meanDec: _asDouble(map['meandec'] ?? map['dec_deg']),
+      firstMjd: _asDouble(map['firstmjd'] ?? map['first_mjd']),
+      lastMjd: _asDouble(map['lastmjd'] ?? map['last_mjd']),
+      nDetections: _asInt(map['ndet'] ?? map['n_detections']) ?? 0,
       topClass: map['top_class'] as String?,
       topClassifier: (map['top_classifier'] ?? map['classifier_name']) as String?,
       topClassifierVersion:
           (map['top_classifier_version'] ?? map['classifier_version']) as String?,
-      topProbability: (map['top_probability'] as num?)?.toDouble(),
-      peakMag: (map['peak_mag'] as num?)?.toDouble(),
+      topProbability: _asDouble(map['top_probability']),
+      peakMag: _asDouble(map['peak_mag']),
       peakBand: map['peak_band'] as String?,
-      latestMag: (map['latest_mag'] as num?)?.toDouble(),
+      latestMag: _asDouble(map['latest_mag']),
       latestBand: map['latest_band'] as String?,
-      latestMjd: (map['latest_mjd'] as num?)?.toDouble(),
+      latestMjd: _asDouble(map['latest_mjd']),
       displayName: map['display_name'] as String?,
       targetKind: map['target_kind'] as String?,
       sourceFeed: map['source_feed'] as String?,
       magNote: map['mag_note'] as String?,
       horizonsUrl: map['horizons_url'] as String?,
-      tier: (map['tier'] as num?)?.toInt() ?? 1,
+      tier: _parseTier(map['tier']),
       isArtifact: map['is_artifact'] == true,
       sso: ssoRaw is Map ? SsoMatchInfo.fromMap(Map<String, dynamic>.from(ssoRaw)) : null,
     );
+  }
+
+  static double? _asDouble(dynamic raw) {
+    if (raw is num) return raw.toDouble();
+    if (raw is String) return double.tryParse(raw.trim());
+    return null;
+  }
+
+  static int? _asInt(dynamic raw) {
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw.trim());
+    return null;
+  }
+
+  static int _parseTier(dynamic raw) {
+    if (raw is num) return raw.toInt();
+    if (raw is String) {
+      if (raw == 'bright') return 0;
+      return int.tryParse(raw.trim()) ?? 1;
+    }
+    return 1;
   }
 
   final String survey;
