@@ -12,6 +12,7 @@ import '../domain/format.dart';
 import '../domain/lightcurve.dart';
 import '../domain/solar.dart';
 import 'sky_media_widgets.dart';
+import 'gear_card_widget.dart';
 import 'theme.dart';
 import 'tonight_arc_chart.dart';
 import 'tonight_screen.dart';
@@ -582,6 +583,8 @@ class _ObjectDetailScreenState extends State<ObjectDetailScreen> {
                   ),
                 ),
               ],
+              const SizedBox(height: 16),
+              GearRecommendationCard(magnitude: obj.effectiveMag),
             ],
           ),
         ),

@@ -44,9 +44,23 @@ service cloud.firestore {
           'max_peak_mag',
           'topics',
           'fcm_tokens',
+          'rounded_lat',
+          'rounded_lon',
+          'scope_preset',
           'updated_at'
         ])
-        && (!('fcm_tokens' in request.resource.data) || request.resource.data.fcm_tokens.size() <= 10);
+        && (!('fcm_tokens' in request.resource.data) || request.resource.data.fcm_tokens.size() <= 10)
+        && (!('rounded_lat' in request.resource.data)
+          || (request.resource.data.rounded_lat is number
+            && request.resource.data.rounded_lat >= -90
+            && request.resource.data.rounded_lat <= 90))
+        && (!('rounded_lon' in request.resource.data)
+          || (request.resource.data.rounded_lon is number
+            && request.resource.data.rounded_lon >= -180
+            && request.resource.data.rounded_lon <= 180))
+        && (!('scope_preset' in request.resource.data)
+          || (request.resource.data.scope_preset is string
+            && request.resource.data.scope_preset.size() <= 40));
       allow delete: if isOwner(uid);
 
       match /bookmarks/{bookmarkId} {
@@ -62,7 +76,7 @@ service cloud.firestore {
             'created_at'
           ])
           && request.resource.data.object_key == bookmarkId
-          && request.resource.data.survey in ['lsst', 'ztf']
+          && request.resource.data.survey in ['lsst', 'ztf', 'bright_sn', 'bright_neo', 'bright_comet', 'bright_var']
           && request.resource.data.oid is string
           && request.resource.data.oid.size() >= 1
           && request.resource.data.oid.size() <= 64;

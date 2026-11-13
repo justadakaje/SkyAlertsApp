@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../data/firestore_repository.dart';
 import 'theme.dart';
+import 'tonight_screen.dart';
 
 class SavedAlertsScreen extends StatefulWidget {
   const SavedAlertsScreen({super.key, required this.repository});
@@ -19,8 +20,11 @@ class _SavedAlertsScreenState extends State<SavedAlertsScreen> {
   bool _notifySolarMatched = true;
   bool _notifyWeeklyDispatch = true;
   double _minConfidence = 0.80;
+  bool _authBusy = false;
 
   Future<void> _savePreferences() async {
+    final roundedLoc = backyardLocationNotifier.value.roundedToTenth;
+    final scopePreset = backyardScopeNotifier.value.id;
     await widget.repository.saveAlertPreferences(
       UserAlertPreferences(
         notifyTransients: _notifyTransients,
@@ -28,11 +32,71 @@ class _SavedAlertsScreenState extends State<SavedAlertsScreen> {
         notifyWeeklyDispatch: _notifyWeeklyDispatch,
         minConfidence: _minConfidence,
       ),
+      roundedLat: roundedLoc.latitudeDeg,
+      roundedLon: roundedLoc.longitudeDeg,
+      scopePreset: scopePreset,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Push notification preferences updated.')),
+      const SnackBar(
+        content: Text('Alert & rounded backyard sync preferences updated.'),
+      ),
     );
+  }
+
+  Future<void> _runAuthAction(
+    Future<void> Function() action,
+    String successMessage,
+  ) async {
+    if (_authBusy) return;
+    setState(() => _authBusy = true);
+    try {
+      await action();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successMessage)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Account action failed: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _authBusy = false);
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Account & Data?'),
+        content: const Text(
+          'This permanently deletes your synced bookmarks, alert preferences, and Firebase Auth account. This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFFF6B4A),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete Permanently'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _runAuthAction(
+        widget.repository.deleteUserAccountAndData,
+        'Account and synced data deleted.',
+      );
+    }
   }
 
   @override
@@ -49,27 +113,130 @@ class _SavedAlertsScreenState extends State<SavedAlertsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  if (user == null)
-                    Card(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      child: ListTile(
-                        leading: const Icon(
-                          Icons.person_outline,
-                          color: SkyColors.accentAmber,
-                        ),
-                        title: const Text(
-                          'Sign in to sync saved bookmarks across devices',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: const Text(
-                          'Use the Admin tab to sign in with your account.',
-                        ),
-                        trailing: OutlinedButton(
-                          onPressed: () => context.go('/admin'),
-                          child: const Text('Sign In'),
-                        ),
+                  Card(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                user == null
+                                    ? Icons.cloud_off_outlined
+                                    : (user.isAnonymous
+                                          ? Icons.verified_user_outlined
+                                          : Icons.cloud_done_outlined),
+                                color: user == null
+                                    ? SkyColors.accentAmber
+                                    : const Color(0xFF3DDC97),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Account, Sync & Privacy',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      user == null
+                                          ? 'Not signed in — start an anonymous session or link an account to sync bookmarks and alerts.'
+                                          : (user.isAnonymous
+                                                ? 'Anonymous sync active (${user.uid.substring(0, 8)}…) — link Google or Apple to keep data across devices.'
+                                                : 'Synced as ${user.email ?? user.uid}'),
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: SkyColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              if (user == null)
+                                FilledButton.icon(
+                                  onPressed: _authBusy
+                                      ? null
+                                      : () => _runAuthAction(
+                                          widget.repository.ensureSignedInAnonymously,
+                                          'Anonymous sync started.',
+                                        ),
+                                  icon: const Icon(Icons.bolt, size: 18),
+                                  label: const Text('Start Anonymous Sync'),
+                                ),
+                              if (user == null || user.isAnonymous) ...[
+                                OutlinedButton.icon(
+                                  onPressed: _authBusy
+                                      ? null
+                                      : () => _runAuthAction(
+                                          widget.repository.linkOrSignInWithGoogle,
+                                          user?.isAnonymous == true
+                                              ? 'Google account linked.'
+                                              : 'Signed in with Google.',
+                                        ),
+                                  icon: const Icon(Icons.g_mobiledata, size: 20),
+                                  label: Text(
+                                    user?.isAnonymous == true
+                                        ? 'Link Google Account'
+                                        : 'Continue with Google',
+                                  ),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: _authBusy
+                                      ? null
+                                      : () => _runAuthAction(
+                                          widget.repository.linkOrSignInWithApple,
+                                          user?.isAnonymous == true
+                                              ? 'Apple account linked.'
+                                              : 'Signed in with Apple.',
+                                        ),
+                                  icon: const Icon(Icons.apple, size: 18),
+                                  label: Text(
+                                    user?.isAnonymous == true
+                                        ? 'Link Apple Account'
+                                        : 'Sign in with Apple',
+                                  ),
+                                ),
+                              ],
+                              if (user != null) ...[
+                                OutlinedButton.icon(
+                                  onPressed: _authBusy
+                                      ? null
+                                      : () => _runAuthAction(
+                                          FirebaseAuth.instance.signOut,
+                                          'Signed out.',
+                                        ),
+                                  icon: const Icon(Icons.logout, size: 16),
+                                  label: const Text('Sign Out'),
+                                ),
+                                TextButton.icon(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: const Color(0xFFFF6B4A),
+                                  ),
+                                  onPressed: _authBusy ? null : _confirmDeleteAccount,
+                                  icon: const Icon(Icons.delete_forever_outlined, size: 18),
+                                  label: const Text('Delete Account & Data'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
                       ),
                     ),
+                  ),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -178,6 +345,40 @@ class _SavedAlertsScreenState extends State<SavedAlertsScreen> {
                         }).toList(),
                       );
                     },
+                  ),
+                  const SizedBox(height: 24),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text(
+                            'Legal & Privacy',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: SkyColors.textSecondary,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () => context.push('/privacy'),
+                            icon: const Icon(Icons.privacy_tip_outlined, size: 16),
+                            label: const Text('Privacy Policy'),
+                          ),
+                          TextButton.icon(
+                            onPressed: () => context.push('/terms'),
+                            icon: const Icon(Icons.description_outlined, size: 16),
+                            label: const Text('Terms of Service'),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
