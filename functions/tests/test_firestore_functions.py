@@ -321,6 +321,7 @@ def test_daily_pipeline_ingest_identify_rollups_and_fcm() -> None:
                 "constellation": "Cap",
             }
         },
+        bright_targets_fn=lambda: [],
         now=fixed_now,
     )
 
