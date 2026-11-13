@@ -99,12 +99,28 @@ class _AdminScreenState extends State<AdminScreen> {
         _statusMessage = 'Signed in as ${cred.user?.email ?? cred.user?.uid}.';
       });
       await _refreshLogs();
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      final msg = switch (e.code) {
+        'popup-blocked' =>
+          'Popup blocked. Allow popups for this site and retry, or use email & password above.',
+        'popup-closed-by-user' || 'cancelled-popup-request' => 'Google sign-in cancelled.',
+        'operation-not-allowed' =>
+          'Google sign-in is not enabled for this Firebase project.',
+        'unauthorized-domain' =>
+          'This domain is not authorized for Firebase sign-in.',
+        'network-request-failed' => 'Network error during sign-in. Check your connection and retry.',
+        _ => 'Google sign-in failed (${e.code}): ${e.message ?? 'no details'}',
+      };
+      setState(() {
+        _busy = false;
+        _statusMessage = msg;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _statusMessage =
-            'Google popup blocked or unavailable in this browser ($e). Use the Owner Email & Password login above.';
+        _statusMessage = 'Google sign-in failed: $e';
       });
     }
   }

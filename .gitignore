@@ -37,6 +37,14 @@ next-env.d.ts
 !.env.example
 *.pem
 *.key
+GoogleService-Info.plist
+google-services.json
+
+# Handoff & local planning docs
+HANDOFF.md
+monetization_decisions.md
+implementation_plan.md
+walkthrough.md
 
 # Local output
 ingest/out/
