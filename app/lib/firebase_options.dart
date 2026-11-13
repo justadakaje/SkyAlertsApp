@@ -22,7 +22,7 @@ class DefaultFirebaseOptions {
     appId: '1:792163391320:web:aadd2e08a009252eaa372d',
     messagingSenderId: '792163391320',
     projectId: 'skyalerts-app',
-    authDomain: 'skyalerts-app.firebaseapp.com',
+    authDomain: 'sky.henseler.app',
     storageBucket: 'skyalerts-app.firebasestorage.app',
   );
 
