@@ -8,6 +8,7 @@ import 'object_detail_screen.dart';
 import 'saved_alerts_screen.dart';
 import 'solar_system_screen.dart';
 import 'theme.dart';
+import 'tonight_screen.dart';
 import 'trends_screen.dart';
 
 GoRouter buildAppRouter(SkyAlertsRepository repository) {
@@ -34,6 +35,14 @@ GoRouter buildAppRouter(SkyAlertsRepository repository) {
                     ),
                   ),
                 ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/tonight',
+                builder: (context, state) => TonightScreen(repository: repository),
               ),
             ],
           ),
@@ -91,13 +100,15 @@ class AdaptiveAppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final isRed = redNightModeNotifier.value;
+        final navBg = isRed ? SkyRedColors.bgSurface : SkyColors.bgSurface;
         final isWide = constraints.maxWidth >= 760;
         if (isWide) {
           return Scaffold(
             body: Row(
               children: [
                 NavigationRail(
-                  backgroundColor: SkyColors.bgSurface,
+                  backgroundColor: navBg,
                   selectedIndex: navigationShell.currentIndex,
                   onDestinationSelected: _onTap,
                   labelType: NavigationRailLabelType.all,
@@ -105,11 +116,32 @@ class AdaptiveAppShell extends StatelessWidget {
                     padding: EdgeInsets.symmetric(vertical: 16),
                     child: Icon(Icons.auto_awesome, color: SkyColors.accentAmber, size: 28),
                   ),
+                  trailing: Expanded(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: IconButton(
+                          onPressed: () => redNightModeNotifier.value = !isRed,
+                          tooltip: isRed ? 'Exit Red Night Mode' : 'Red Night Mode (OLED)',
+                          icon: Icon(
+                            isRed ? Icons.nights_stay : Icons.nights_stay_outlined,
+                            color: isRed ? SkyRedColors.accentRed : SkyColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                   destinations: const [
                     NavigationRailDestination(
                       icon: Icon(Icons.explore_outlined),
                       selectedIcon: Icon(Icons.explore),
                       label: Text('Sky Feed'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.visibility_outlined),
+                      selectedIcon: Icon(Icons.visibility),
+                      label: Text('Tonight'),
                     ),
                     NavigationRailDestination(
                       icon: Icon(Icons.public_outlined),
@@ -143,11 +175,12 @@ class AdaptiveAppShell extends StatelessWidget {
         return Scaffold(
           body: navigationShell,
           bottomNavigationBar: NavigationBar(
-            backgroundColor: SkyColors.bgSurface,
+            backgroundColor: navBg,
             selectedIndex: navigationShell.currentIndex,
             onDestinationSelected: _onTap,
             destinations: const [
-              NavigationDestination(icon: Icon(Icons.explore_outlined), label: 'Sky Feed'),
+              NavigationDestination(icon: Icon(Icons.explore_outlined), label: 'Feed'),
+              NavigationDestination(icon: Icon(Icons.visibility_outlined), label: 'Tonight'),
               NavigationDestination(icon: Icon(Icons.public_outlined), label: 'Solar'),
               NavigationDestination(icon: Icon(Icons.stacked_line_chart), label: 'Trends'),
               NavigationDestination(

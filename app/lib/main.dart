@@ -15,19 +15,30 @@ Future<void> main() async {
   runApp(SkyAlertsApp(repository: repository));
 }
 
-class SkyAlertsApp extends StatelessWidget {
+class SkyAlertsApp extends StatefulWidget {
   const SkyAlertsApp({super.key, required this.repository});
 
   final SkyAlertsRepository repository;
 
   @override
+  State<SkyAlertsApp> createState() => _SkyAlertsAppState();
+}
+
+class _SkyAlertsAppState extends State<SkyAlertsApp> {
+  late final _router = buildAppRouter(widget.repository);
+
+  @override
   Widget build(BuildContext context) {
-    final router = buildAppRouter(repository);
-    return MaterialApp.router(
-      title: 'Sky Alerts',
-      debugShowCheckedModeBanner: false,
-      theme: buildSkyAlertsTheme(),
-      routerConfig: router,
+    return ValueListenableBuilder<bool>(
+      valueListenable: redNightModeNotifier,
+      builder: (context, redNightMode, _) {
+        return MaterialApp.router(
+          title: 'Sky Alerts',
+          debugShowCheckedModeBanner: false,
+          theme: buildSkyAlertsTheme(redNightMode: redNightMode),
+          routerConfig: _router,
+        );
+      },
     );
   }
 }
