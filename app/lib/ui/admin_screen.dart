@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/firestore_repository.dart';
 import '../domain/format.dart';
@@ -52,6 +55,58 @@ class _AdminScreenState extends State<AdminScreen> {
     } catch (_) {
       // Ignore if token doesn't have admin access yet.
     }
+  }
+
+  void _showDetailModal(String title, Map<String, dynamic> data) {
+    final prettyJson = const JsonEncoder.withIndent('  ').convert(data);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: SkyColors.bgSurface,
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            IconButton(
+              tooltip: 'Copy JSON',
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: prettyJson));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Copied log details to clipboard.')),
+                );
+              },
+              icon: const Icon(Icons.copy_outlined, size: 18),
+            ),
+            IconButton(
+              tooltip: 'Close',
+              onPressed: () => Navigator.of(ctx).pop(),
+              icon: const Icon(Icons.close, size: 20),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              prettyJson,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                height: 1.45,
+                color: SkyColors.textPrimary,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _signInWithEmail() async {
@@ -393,6 +448,10 @@ class _AdminScreenState extends State<AdminScreen> {
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
+                          onTap: () => _showDetailModal(
+                            'Ingest Run #${r['id'] ?? ''} (${status.toUpperCase()})',
+                            r,
+                          ),
                           leading: Icon(
                             status == 'success'
                                 ? Icons.check_circle_outline
@@ -413,6 +472,11 @@ class _AdminScreenState extends State<AdminScreen> {
                             '$started · ${(durMs / 1000.0).toStringAsFixed(1)}s · '
                             'trigger: ${r['trigger'] ?? 'cron'}',
                             style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            size: 18,
+                            color: SkyColors.textSecondary,
                           ),
                         ),
                       );
@@ -435,12 +499,21 @@ class _AdminScreenState extends State<AdminScreen> {
                         margin: const EdgeInsets.only(bottom: 6),
                         child: ListTile(
                           dense: true,
+                          onTap: () => _showDetailModal(
+                            'Audit Log · ${a['action'] ?? 'action'}',
+                            a,
+                          ),
                           leading: const Icon(Icons.history, size: 18),
                           title: Text(
                             '${a['action']} → ${a['target'] ?? 'all'}',
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: Text('${a['actor']} · ${a['occurred_at']}'),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            size: 18,
+                            color: SkyColors.textSecondary,
+                          ),
                         ),
                       );
                     }),
