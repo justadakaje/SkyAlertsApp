@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../domain/astro.dart';
 import '../domain/format.dart';
+import 'sky_speech.dart';
 import 'theme.dart';
 
 /// Renders an astronomical deep-sky color CCD cutout (Legacy Survey DR10 -> SDSS DR18 -> Starfield reticle).
@@ -331,6 +332,7 @@ class _SkyDispatchSheetBodyState extends State<_SkyDispatchSheetBody> {
   int _activeTurn = 0;
   bool _showMarkdown = false;
   Timer? _timer;
+  int _speechGeneration = 0;
   late final List<({String speaker, String text})> _turns;
 
   @override
@@ -341,7 +343,9 @@ class _SkyDispatchSheetBodyState extends State<_SkyDispatchSheetBody> {
 
   @override
   void dispose() {
+    _speechGeneration++;
     _timer?.cancel();
+    stopSpeech();
     super.dispose();
   }
 
@@ -370,26 +374,66 @@ class _SkyDispatchSheetBodyState extends State<_SkyDispatchSheetBody> {
 
   void _togglePlay() {
     setState(() => _playing = !_playing);
+    _speechGeneration++;
     _timer?.cancel();
     if (_playing) {
-      _scheduleNextTurn();
+      _playCurrentTurn();
+    } else {
+      stopSpeech();
     }
   }
 
-  void _scheduleNextTurn() {
+  void _selectTurn(int index) {
+    setState(() => _activeTurn = index);
+    if (_playing) {
+      _speechGeneration++;
+      _timer?.cancel();
+      _playCurrentTurn();
+    }
+  }
+
+  void _advanceAfterTurn() {
+    if (!mounted || !_playing) return;
+    if (_activeTurn < _turns.length - 1) {
+      setState(() => _activeTurn++);
+      _playCurrentTurn();
+    } else {
+      setState(() => _playing = false);
+    }
+  }
+
+  void _playCurrentTurn() {
+    if (!_playing || _turns.isEmpty) return;
+    final turn = _turns[_activeTurn];
+    final gen = _speechGeneration;
+    if (isSpeechSupported) {
+      final isHostA = turn.speaker.toLowerCase().contains('alex') ||
+          turn.speaker.toLowerCase().contains('host 1') ||
+          _activeTurn.isEven;
+      speakText(
+        turn.text,
+        pitch: isHostA ? 1.0 : 0.94,
+        onEnd: () {
+          if (!mounted || !_playing || gen != _speechGeneration) return;
+          _advanceAfterTurn();
+        },
+        onError: () {
+          if (!mounted || !_playing || gen != _speechGeneration) return;
+          _scheduleNextTurnTimer(gen);
+        },
+      );
+      return;
+    }
+    _scheduleNextTurnTimer(gen);
+  }
+
+  void _scheduleNextTurnTimer(int gen) {
     if (!_playing || _turns.isEmpty) return;
     final words = _turns[_activeTurn].text.split(RegExp(r'\s+')).length;
     final seconds = (words / 2.8).round().clamp(3, 12);
     _timer = Timer(Duration(seconds: seconds), () {
-      if (!mounted || !_playing) return;
-      setState(() {
-        if (_activeTurn < _turns.length - 1) {
-          _activeTurn++;
-          _scheduleNextTurn();
-        } else {
-          _playing = false;
-        }
-      });
+      if (!mounted || !_playing || gen != _speechGeneration) return;
+      _advanceAfterTurn();
     });
   }
 
@@ -450,20 +494,18 @@ class _SkyDispatchSheetBodyState extends State<_SkyDispatchSheetBody> {
                 FilledButton.icon(
                   onPressed: _togglePlay,
                   icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
-                  label: Text(_playing ? 'Pause Briefing' : 'Play Teleprompter'),
+                  label: Text(_playing ? 'Pause Briefing' : 'Play Briefing'),
                 ),
                 const SizedBox(width: 8),
                 IconButton(
                   tooltip: 'Previous segment',
-                  onPressed: _activeTurn > 0
-                      ? () => setState(() => _activeTurn--)
-                      : null,
+                  onPressed: _activeTurn > 0 ? () => _selectTurn(_activeTurn - 1) : null,
                   icon: const Icon(Icons.skip_previous),
                 ),
                 IconButton(
                   tooltip: 'Next segment',
                   onPressed: _activeTurn < _turns.length - 1
-                      ? () => setState(() => _activeTurn++)
+                      ? () => _selectTurn(_activeTurn + 1)
                       : null,
                   icon: const Icon(Icons.skip_next),
                 ),
@@ -502,7 +544,7 @@ class _SkyDispatchSheetBodyState extends State<_SkyDispatchSheetBody> {
                           ? const Color(0xFF38BDF8)
                           : SkyColors.accentAmber;
                       return GestureDetector(
-                        onTap: () => setState(() => _activeTurn = idx),
+                        onTap: () => _selectTurn(idx),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 220),
                           margin: const EdgeInsets.only(bottom: 10),
