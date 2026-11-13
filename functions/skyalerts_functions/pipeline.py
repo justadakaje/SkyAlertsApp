@@ -47,6 +47,14 @@ def execute_daily_pipeline(
 ) -> dict[str, Any]:
     """Runs daily ingest + SkyBoT + bright targets + Horizons + rollups + FCM."""
     cfg = config or Config.from_env()
+    if config is None and not os.getenv("INGEST_MAX_PAGES"):
+        cfg.max_pages_per_source = 10
+    if config is None and not os.getenv("INGEST_TIME_BUDGET_S"):
+        # Reserve headroom inside the 540s Cloud Function timeout for bright targets,
+        # SkyBoT, Horizons, and rollups.
+        cfg.time_budget_s = 360.0
+    if config is None and not os.getenv("INGEST_ENRICH_MAX"):
+        cfg.enrich_max_objects = 100
     fs_store = FirestoreStore(db, now_fn=(lambda: now) if now is not None else None)
 
     own_alerce = alerce_client is None

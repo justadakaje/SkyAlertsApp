@@ -78,7 +78,7 @@ try:
             )
             raise https_fn.HttpsError(code=code, message=str(exc)) from exc
 
-    @https_fn.on_call(memory=512, timeout_sec=300)
+    @https_fn.on_call(memory=512, timeout_sec=540)
     def trigger_ingest(req: https_fn.CallableRequest[Any]) -> dict[str, Any]:
         db = _get_firestore_db()
         survey = (req.data or {}).get("survey") if isinstance(req.data, dict) else None

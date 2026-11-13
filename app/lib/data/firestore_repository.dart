@@ -511,7 +511,10 @@ class SkyAlertsRepository {
     String name, [
     Map<String, dynamic>? payload,
   ]) async {
-    final callable = _functions.httpsCallable(name);
+    final callable = _functions.httpsCallable(
+      name,
+      options: HttpsCallableOptions(timeout: const Duration(seconds: 540)),
+    );
     final res = await callable.call<Map<String, dynamic>>(payload ?? const {});
     return Map<String, dynamic>.from(res.data);
   }
