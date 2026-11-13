@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/firestore_repository.dart';
+import '../domain/astro_weather.dart';
 import '../domain/backyard_planner.dart';
 import '../domain/classes.dart';
 import 'theme.dart';
@@ -29,6 +30,8 @@ class _TonightScreenState extends State<TonightScreen> {
   bool _loading = true;
   String? _error;
   List<CatalogObject> _candidates = const [];
+  SevenNightOutlook? _weather;
+  bool _weatherLoading = false;
   bool _onlyReachable = false;
   String? _expandedArcId;
 
@@ -51,11 +54,27 @@ class _TonightScreenState extends State<TonightScreen> {
     super.dispose();
   }
 
+  Future<void> _loadWeather() async {
+    setState(() => _weatherLoading = true);
+    try {
+      final outlook = await fetchSevenNightOutlook(backyardLocationNotifier.value);
+      if (!mounted) return;
+      setState(() {
+        _weather = outlook;
+        _weatherLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _weatherLoading = false);
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
     });
+    _loadWeather();
     try {
       final list = await widget.repository.fetchBackyardCandidates();
       if (!mounted) return;
@@ -86,6 +105,7 @@ class _TonightScreenState extends State<TonightScreen> {
     _latCtrl.text = rounded.latitudeDeg.toStringAsFixed(1);
     _lonCtrl.text = rounded.longitudeDeg.toStringAsFixed(1);
     setState(() {});
+    _loadWeather();
   }
 
   void _copyCoords(CatalogObject obj) {
@@ -156,6 +176,8 @@ class _TonightScreenState extends State<TonightScreen> {
             _buildSetupCard(context, loc, scope, minAlt),
             const SizedBox(height: 12),
             _buildNightSummaryCard(context, night, reachableCount, ranked.length, scope),
+            const SizedBox(height: 12),
+            _buildWeatherOutlookCard(context),
             const SizedBox(height: 14),
             if (_loading)
               const Padding(
@@ -268,6 +290,7 @@ class _TonightScreenState extends State<TonightScreen> {
                         _latCtrl.text = val.latitudeDeg.toStringAsFixed(1);
                         _lonCtrl.text = val.longitudeDeg.toStringAsFixed(1);
                         setState(() {});
+                        _loadWeather();
                       }
                     },
                   ),
@@ -380,6 +403,113 @@ class _TonightScreenState extends State<TonightScreen> {
             Text(
               'Moon: ${night.moonIllumPercent}% lit',
               style: const TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWeatherOutlookCard(BuildContext context) {
+    final secondary = redNightModeNotifier.value
+        ? SkyRedColors.textSecondary
+        : SkyColors.textSecondary;
+    final primary = Theme.of(context).colorScheme.primary;
+    final weather = _weather;
+    if (_weatherLoading && weather == null) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(14),
+          child: Row(
+            children: [
+              SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 10),
+              Text('Loading 7-night clear-sky & seeing forecast...'),
+            ],
+          ),
+        ),
+      );
+    }
+    if (weather == null || weather.nights.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final tonight = weather.tonight!;
+    final best = weather.bestNight;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '7-Night Clear-Sky Forecast · ${tonight.verdict} (${tonight.clearSkyScore}/100)',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: tonight.isClearNight ? primary : null,
+                    ),
+                  ),
+                ),
+                Text(
+                  weather.sourceSummary,
+                  style: TextStyle(fontSize: 11, color: secondary),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Tonight clouds: Low ${tonight.cloudLowPct}% · Mid ${tonight.cloudMidPct}% · '
+              'High ${tonight.cloudHighPct}% · Seeing: ${tonight.seeingLabel}'
+              '${best != null ? ' · Best night: ${best.date.substring(5)} (${best.clearSkyScore}/100)' : ''}',
+              style: TextStyle(fontSize: 12, color: secondary),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: weather.nights.map((n) {
+                final isBest = best != null && n.date == best.date;
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isBest
+                          ? primary
+                          : (redNightModeNotifier.value
+                              ? SkyRedColors.borderSubtle
+                              : SkyColors.borderSubtle),
+                    ),
+                    color: n.isClearNight ? primary.withValues(alpha: 0.1) : null,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isBest) ...[
+                            Icon(Icons.star, size: 12, color: primary),
+                            const SizedBox(width: 3),
+                          ],
+                          Text(
+                            n.date.length >= 10 ? n.date.substring(5) : n.date,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        '${n.clearSkyScore}/100 · ${n.cloudTotalPct}% cld',
+                        style: TextStyle(fontSize: 11, color: secondary),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
             ),
           ],
         ),
