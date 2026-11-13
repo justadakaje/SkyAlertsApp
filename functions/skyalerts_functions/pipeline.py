@@ -28,6 +28,7 @@ from skyalerts_functions.notifications import (
     notify_new_transients,
     notify_weekly_digest,
 )
+from skyalerts_functions.pro_alerts import dispatch_pro_backyard_alerts
 
 log = logging.getLogger("skyalerts_functions.pipeline")
 
@@ -89,6 +90,15 @@ def execute_daily_pipeline(
             db, fs_store.last_touched_objects, send_fn=send_fn
         )
         asteroid_pushes = notify_matched_asteroids(fs_store.last_matched_asteroids, send_fn=send_fn)
+        pro_backyard_pushes = []
+        try:
+            pro_backyard_pushes = dispatch_pro_backyard_alerts(
+                db,
+                [*fs_store.last_touched_objects, *bright_items],
+                send_fn=send_fn,
+            )
+        except Exception as exc:
+            log.warning("pro_backyard_alerts_failed err=%s", exc)
 
         return {
             "ingest_run": run_res.as_dict(),
@@ -98,6 +108,7 @@ def execute_daily_pipeline(
                 "transients": len(transient_pushes),
                 "bookmarks": len(bookmark_pushes),
                 "solar_matched": len(asteroid_pushes),
+                "pro_backyard": len(pro_backyard_pushes),
             },
             "total_objects": rollups["overview"]["total_objects"],
         }

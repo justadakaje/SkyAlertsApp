@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/firestore_repository.dart';
+import '../domain/pro_entitlement.dart';
+import 'pro_paywall_sheet.dart';
 import 'theme.dart';
 import 'tonight_screen.dart';
 
@@ -236,6 +238,39 @@ class _SavedAlertsScreenState extends State<SavedAlertsScreen> {
                         ],
                       ),
                     ),
+                  ),
+                  ValueListenableBuilder<ProEntitlementState>(
+                    valueListenable: proEntitlementNotifier,
+                    builder: (context, proState, _) {
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        child: ListTile(
+                          leading: Icon(
+                            proState.isPro
+                                ? Icons.verified_outlined
+                                : Icons.auto_awesome,
+                            color: proState.isPro
+                                ? const Color(0xFF3DDC97)
+                                : SkyColors.accentAmber,
+                          ),
+                          title: Text(
+                            proState.isPro
+                                ? 'SkyAlerts Pro Active (${proState.activeOption?.title ?? "Preview"})'
+                                : 'SkyAlerts Pro — Clear-Sky Backyard Push Alerts',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                            proState.isPro
+                                ? 'Clear-sky + bright-target push matching is preview-enabled for your rounded backyard profile.'
+                                : r'Match clear local skies with bright transients for your rig ($2.99/mo, $24.99/yr 7-day trial, or $49.99 lifetime).',
+                          ),
+                          trailing: FilledButton.tonal(
+                            onPressed: () => showProPaywallSheet(context),
+                            child: Text(proState.isPro ? 'Manage' : 'View Plans'),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   Card(
                     child: Padding(
