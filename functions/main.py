@@ -25,7 +25,11 @@ def _get_firestore_db() -> Any:
 
 
 try:
+    import firebase_admin
     from firebase_functions import https_fn, scheduler_fn
+
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()
 
     @scheduler_fn.on_schedule(
         schedule="17 6 * * *",
