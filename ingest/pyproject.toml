@@ -27,10 +27,6 @@ packages = ["skyalerts_ingest"]
 [tool.uv]
 package = true
 
-# Vercel Python runtime entrypoint (WSGI callable). Cron: see vercel.json.
-[tool.vercel]
-entrypoint = "skyalerts_ingest.web:app"
-
 [tool.ruff]
 line-length = 100
 target-version = "py312"
