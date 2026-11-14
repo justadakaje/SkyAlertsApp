@@ -159,6 +159,34 @@ class CatalogObject {
       (displayName != null && displayName!.trim().isNotEmpty) ? displayName!.trim() : oid;
 }
 
+/// Deduplicates and sorts split non-artifact and artifact feed queries cleanly.
+List<CatalogObject> mergeAndSortCatalogFeed(
+  Iterable<CatalogObject> items, {
+  required bool newestFirst,
+  int? limit,
+}) {
+  final byId = <String, CatalogObject>{};
+  for (final obj in items) {
+    byId[obj.docId] = obj;
+  }
+  final list = byId.values.toList();
+  list.sort((a, b) {
+    if (!newestFirst) {
+      final tierCmp = a.tier.compareTo(b.tier);
+      if (tierCmp != 0) return tierCmp;
+      final probCmp = (b.topProbability ?? -1.0).compareTo(a.topProbability ?? -1.0);
+      if (probCmp != 0) return probCmp;
+    }
+    final mjdCmp = (b.lastMjd ?? -1.0).compareTo(a.lastMjd ?? -1.0);
+    if (mjdCmp != 0) return mjdCmp;
+    return a.docId.compareTo(b.docId);
+  });
+  if (limit != null && list.length > limit) {
+    return list.sublist(0, limit);
+  }
+  return list;
+}
+
 class ClassificationEntry {
   const ClassificationEntry({
     required this.classifier,
@@ -490,7 +518,8 @@ class SkyAlertsRepository {
     return TrendsRollup.fromMap(snap.data() ?? const {});
   }
 
-  /// Paginated catalog feed query (1 read per object card, up to `limit` cards).
+  /// Paginated catalog feed query (always uses indexed `is_artifact` slices so
+  /// toggling "Include artifacts" works without waiting on extra composite builds).
   Future<List<CatalogObject>> fetchCatalogFeed({
     String? survey,
     String? topClass,
@@ -498,10 +527,48 @@ class SkyAlertsRepository {
     bool newestFirst = false,
     int limit = 40,
   }) async {
-    Query<Map<String, dynamic>> query = _db.collection('objects');
     if (!includeArtifacts) {
-      query = query.where('is_artifact', isEqualTo: false);
+      return _fetchCatalogFeedByArtifactFlag(
+        isArtifact: false,
+        survey: survey,
+        topClass: topClass,
+        newestFirst: newestFirst,
+        limit: limit,
+      );
     }
+    final slices = await Future.wait([
+      _fetchCatalogFeedByArtifactFlag(
+        isArtifact: false,
+        survey: survey,
+        topClass: topClass,
+        newestFirst: newestFirst,
+        limit: limit,
+      ),
+      _fetchCatalogFeedByArtifactFlag(
+        isArtifact: true,
+        survey: survey,
+        topClass: topClass,
+        newestFirst: newestFirst,
+        limit: limit,
+      ),
+    ]);
+    return mergeAndSortCatalogFeed(
+      [...slices[0], ...slices[1]],
+      newestFirst: newestFirst,
+      limit: limit,
+    );
+  }
+
+  Future<List<CatalogObject>> _fetchCatalogFeedByArtifactFlag({
+    required bool isArtifact,
+    String? survey,
+    String? topClass,
+    required bool newestFirst,
+    required int limit,
+  }) async {
+    Query<Map<String, dynamic>> query = _db
+        .collection('objects')
+        .where('is_artifact', isEqualTo: isArtifact);
     if (survey != null && survey.isNotEmpty) {
       query = query.where('survey', isEqualTo: survey);
     }
