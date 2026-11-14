@@ -76,6 +76,60 @@
         { "fieldPath": "sso.obs_mjd", "order": "DESCENDING" },
         { "fieldPath": "sso.sep_arcsec", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tier", "order": "ASCENDING" },
+        { "fieldPath": "top_probability", "order": "DESCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "survey", "order": "ASCENDING" },
+        { "fieldPath": "tier", "order": "ASCENDING" },
+        { "fieldPath": "top_probability", "order": "DESCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "survey", "order": "ASCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "top_class", "order": "ASCENDING" },
+        { "fieldPath": "tier", "order": "ASCENDING" },
+        { "fieldPath": "top_probability", "order": "DESCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "top_class", "order": "ASCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "objects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "survey", "order": "ASCENDING" },
+        { "fieldPath": "top_class", "order": "ASCENDING" },
+        { "fieldPath": "lastmjd", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

@@ -58,4 +58,69 @@ void main() {
       expect(parsed.minConfidence, closeTo(0.9, 1e-6));
     });
   });
+
+  group('mergeAndSortCatalogFeed', () {
+    test('orders by tier, probability desc, then lastMjd desc when newestFirst is false', () {
+      const a = CatalogObject(
+        survey: 'ztf',
+        oid: 'ZTF26sn',
+        tier: 0,
+        topProbability: 0.92,
+        lastMjd: 61354.0,
+      );
+      const b = CatalogObject(
+        survey: 'lsst',
+        oid: '170001',
+        tier: 0,
+        topProbability: 0.98,
+        lastMjd: 61353.0,
+      );
+      const art = CatalogObject(
+        survey: 'ztf',
+        oid: 'ZTF26bogus',
+        tier: 2,
+        topProbability: 0.99,
+        lastMjd: 61355.0,
+        isArtifact: true,
+      );
+
+      final merged = mergeAndSortCatalogFeed(
+        const [a, art, b],
+        newestFirst: false,
+      );
+      expect(merged.map((o) => o.oid), ['170001', 'ZTF26sn', 'ZTF26bogus']);
+    });
+
+    test('orders by lastMjd desc, deduplicates by docId, and enforces limit when newestFirst is true', () {
+      const older = CatalogObject(
+        survey: 'ztf',
+        oid: 'ZTF26old',
+        tier: 0,
+        topProbability: 0.99,
+        lastMjd: 61350.0,
+      );
+      const dup = CatalogObject(
+        survey: 'ztf',
+        oid: 'ZTF26art',
+        tier: 2,
+        topProbability: 0.50,
+        lastMjd: 61356.0,
+        isArtifact: true,
+      );
+      const mid = CatalogObject(
+        survey: 'lsst',
+        oid: '170002',
+        tier: 1,
+        topProbability: 0.70,
+        lastMjd: 61354.0,
+      );
+
+      final merged = mergeAndSortCatalogFeed(
+        const [older, dup, mid, dup],
+        newestFirst: true,
+        limit: 2,
+      );
+      expect(merged.map((o) => o.oid), ['ZTF26art', '170002']);
+    });
+  });
 }

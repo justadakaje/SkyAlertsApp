@@ -68,7 +68,9 @@ class _HomeScreenState extends State<HomeScreen> {
   List<CatalogObject> get _filteredObjects {
     final q = _searchQuery.trim().toLowerCase();
     return _objects.where((obj) {
-      if (_selectedGroup != null && groupOf(obj.topClass) != _selectedGroup) {
+      if (_selectedGroup != null &&
+          !(_includeArtifacts && obj.isArtifact) &&
+          groupOf(obj.topClass) != _selectedGroup) {
         return false;
       }
       if (q.isEmpty) return true;
@@ -128,7 +130,53 @@ class _HomeScreenState extends State<HomeScreen> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? Center(child: Text('Error loading feed: $_error'))
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 36,
+                                  color: SkyColors.accentAmber,
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Error loading feed: $_error',
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 16),
+                                Wrap(
+                                  spacing: 12,
+                                  children: [
+                                    FilledButton.icon(
+                                      onPressed: _load,
+                                      icon: const Icon(Icons.refresh, size: 18),
+                                      label: const Text('Retry'),
+                                    ),
+                                    OutlinedButton(
+                                      onPressed: () {
+                                        _selectedSurvey = null;
+                                        _selectedGroup = null;
+                                        _newestFirst = false;
+                                        _includeArtifacts = false;
+                                        _searchQuery = '';
+                                        _load();
+                                      },
+                                      child: const Text('Reset Filters & Retry'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
                   : RefreshIndicator(
                       onRefresh: _load,
                       child: ListView(
